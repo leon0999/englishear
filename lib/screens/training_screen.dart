@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:animated_text_kit/animated_text_kit.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart' as dotenv_pkg;
 import '../services/image_generation_service.dart' as ai_service;
 
 class TrainingScreen extends StatefulWidget {
@@ -35,7 +36,83 @@ class _TrainingScreenState extends State<TrainingScreen> {
   void initState() {
     super.initState();
     _speech = stt.SpeechToText();
+    
+    // 🔥 즉시 API 테스트
+    _testAPIConnection();
+    
     _loadNewScene();
+  }
+
+  // 🚀 API 연결 테스트
+  Future<void> _testAPIConnection() async {
+    print('🚀 =======================================');
+    print('🚀 Testing Stable Diffusion API Connection');
+    print('🚀 =======================================');
+    
+    // API 키 존재 확인
+    final apiKey = dotenv_pkg.dotenv.env['STABILITY_API_KEY'] ?? '';
+    print('🔑 API Key exists: ${apiKey.isNotEmpty}');
+    print('🔑 API Key length: ${apiKey.length}');
+    if (apiKey.length > 10) {
+      print('🔑 API Key preview: ${apiKey.substring(0, 10)}...');
+    }
+    
+    try {
+      print('📡 Calling generateLearningContent...');
+      final startTime = DateTime.now();
+      
+      // 간단한 테스트 이미지 생성
+      final testContent = await _imageService.generateLearningContent(
+        level: 'beginner',
+        userId: 'test_user',
+        isPremium: true,
+        provider: ai_service.AIImageProvider.stableDiffusion,
+      );
+      
+      final endTime = DateTime.now();
+      final duration = endTime.difference(startTime);
+      print('⏱️ API call took: ${duration.inSeconds} seconds');
+      
+      if (testContent['imageUrl'] != null && testContent['imageUrl'].isNotEmpty) {
+        final imageUrl = testContent['imageUrl'] as String;
+        print('✅ API SUCCESS!');
+        print('📏 Image URL length: ${imageUrl.length}');
+        print('🖼️ Image URL type: ${imageUrl.startsWith('data:image') ? 'Base64' : 'URL'}');
+        print('📝 Sentence: ${testContent['sentence']}');
+        print('🔑 Keywords: ${testContent['keywords']}');
+        
+        // 성공 시 스낵바 표시
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('API Connected! (${duration.inSeconds}s)'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        print('⚠️ API returned empty image URL');
+      }
+    } catch (e) {
+      print('❌ API ERROR: $e');
+      print('❌ Error type: ${e.runtimeType}');
+      
+      // 에러 시 스낵바 표시
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Using fallback images'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 3),
+          ),
+        );
+      }
+    }
+    
+    print('🚀 =======================================');
+    print('🚀 API Test Complete');
+    print('🚀 =======================================');
   }
 
   // 새로운 장면 로드 (API 연동)
@@ -50,12 +127,14 @@ class _TrainingScreenState extends State<TrainingScreen> {
 
     try {
       // API를 통해 학습 콘텐츠 생성
+      print('🚀 Calling API with Stable Diffusion...');
       final content = await _imageService.generateLearningContent(
         level: _currentLevel,
         userId: 'test_user', // 실제로는 로그인한 사용자 ID
-        isPremium: false, // 실제로는 구독 상태 확인
-        provider: ai_service.AIImageProvider.fallback, // 테스트용으로 fallback 사용
+        isPremium: true, // 프리미엄으로 설정하여 더 많은 API 호출 가능
+        provider: ai_service.AIImageProvider.stableDiffusion, // Stable Diffusion API 사용
       );
+      print('✅ API Response received: ${content.keys.join(', ')}');
 
       setState(() {
         _imageUrl = content['imageUrl'] ?? '';

@@ -4,6 +4,7 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/splash_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/onboarding_screen.dart';
+import 'screens/training_screen.dart'; // 🔥 추가
 import 'services/image_generation_service.dart';
 
 void main() async {
@@ -68,12 +69,14 @@ class EnglishEarApp extends StatelessWidget {
           systemOverlayStyle: SystemUiOverlayStyle.dark,
         ),
       ),
-      initialRoute: '/home',
-      routes: {
-        '/': (context) => const SplashScreen(),
-        '/onboarding': (context) => const OnboardingScreen(),
-        '/home': (context) => const HomeScreen(),
-      },
+      // 🔥 개발 중 임시 - TrainingScreen 직접 실행
+      home: TrainingScreen(),
+      // initialRoute: '/home',
+      // routes: {
+      //   '/': (context) => const SplashScreen(),
+      //   '/onboarding': (context) => const OnboardingScreen(),
+      //   '/home': (context) => const HomeScreen(),
+      // },
     );
   }
 }

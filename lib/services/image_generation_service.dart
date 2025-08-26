@@ -129,12 +129,16 @@ class ImageGenerationService {
   // Stable Diffusion으로 이미지 생성
   Future<String> _generateWithStableDiffusion(String level, String? theme) async {
     try {
-      return await _stableDiffusionService.generateEducationalScene(
+      final imageUrl = await _stableDiffusionService.generateEducationalScene(
         level: level,
         theme: theme,
       );
+      
+      // StableDiffusion에서 이미 fallback 이미지를 반환하므로 그대로 사용
+      print('📸 [ImageGenService] Received from StableDiffusion: ${imageUrl.substring(0, 50)}...');
+      return imageUrl;
     } catch (e) {
-      print('Stable Diffusion error: $e');
+      print('Stable Diffusion error in ImageGenService: $e');
       return _getFallbackImage();
     }
   }
