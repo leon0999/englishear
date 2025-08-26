@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
-import 'dart:math';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui';  // ImageFilter 사용
 import '../services/image_generation_service.dart' as ai_service;
 
@@ -22,14 +22,16 @@ class _ImmersiveTrainingScreenState extends State<ImmersiveTrainingScreen>
   // 음성 인식
   late stt.SpeechToText _speech;
   bool _isListening = false;
+  bool _isAutoListening = false;  // 자동 음성 인식 모드
   String _userSpeech = '';
   double _audioLevel = 0.0;
+  bool _hasRequestedPermission = false;  // 권한 요청 여부
 
   // 학습 데이터
   String _imageUrl = '';
   String _scenario = 'street'; // 현재 시나리오
   String _nativePrompt = "Look at this busy street scene!";
-  List<String> _keywords = ['street', 'busy']; // 핵심 단어 2개만
+  List<String> _keywords = ['street', 'busy', 'people']; // 핵심 단어 3개
   String _correctSentence = 'The street is busy with people and cars';
   Map<String, bool> _matchedWords = {};
 
@@ -63,8 +65,19 @@ class _ImmersiveTrainingScreenState extends State<ImmersiveTrainingScreen>
   }
 
   Future<void> _initializeApp() async {
-    await _requestMicrophonePermission();
+    await _checkPermissionStatus();
     _loadNewScene();
+  }
+
+  // 권한 상태 확인
+  Future<void> _checkPermissionStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    _hasRequestedPermission = prefs.getBool('mic_permission_requested') ?? false;
+    
+    if (!_hasRequestedPermission) {
+      await _requestMicrophonePermission();
+      await prefs.setBool('mic_permission_requested', true);
+    }
   }
 
   // 웹/모바일 마이크 권한 처리
@@ -123,6 +136,18 @@ class _ImmersiveTrainingScreenState extends State<ImmersiveTrainingScreen>
 
       // 페이드인 애니메이션
       _fadeController.forward();
+      
+      // 자동 음성 재생 (Web Speech API)
+      if (kIsWeb) {
+        _speakText(_nativePrompt);
+        
+        // 3초 후 자동 음성 인식 시작
+        if (_isAutoListening) {
+          Future.delayed(Duration(seconds: 3), () {
+            if (mounted) _startAutoListening();
+          });
+        }
+      }
     } catch (e) {
       print('Error loading scene: $e');
       setState(() {
@@ -133,33 +158,86 @@ class _ImmersiveTrainingScreenState extends State<ImmersiveTrainingScreen>
     }
   }
 
+  // TTS 기능 (웹에서는 브라우저 API, 모바일에서는 플랫폼 TTS 사용 예정)
+  void _speakText(String text) {
+    // TODO: TTS 구현
+    // 웹: Web Speech API 사용
+    // 모바일: flutter_tts 패키지 사용
+    print('TTS: $text');
+  }
+
+  // 자동 음성 인식 시작
+  void _startAutoListening() async {
+    if (!_isListening) {
+      bool available = await _speech.initialize(
+        onStatus: (status) {
+          if (status == 'done' || status == 'notListening') {
+            setState(() => _isListening = false);
+            _evaluateSpeech();
+            
+            // 자동 모드에서는 다음 장면으로 진행
+            if (_isAutoListening && _score >= 50) {
+              Future.delayed(Duration(seconds: 2), () {
+                if (mounted) _loadNewScene();
+              });
+            }
+          }
+        },
+        onError: (error) {
+          print('Speech recognition error: $error');
+          setState(() => _isListening = false);
+        },
+      );
+
+      if (available) {
+        setState(() => _isListening = true);
+        
+        _speech.listen(
+          onResult: (result) {
+            setState(() {
+              _userSpeech = result.recognizedWords;
+              _checkKeywords(result.recognizedWords);
+            });
+          },
+          onSoundLevelChange: (level) {
+            setState(() {
+              _audioLevel = level / 10;
+            });
+          },
+          listenFor: Duration(seconds: 10),  // 10초 동안 듣기
+          pauseFor: Duration(seconds: 3),    // 3초 침묵시 종료
+        );
+      }
+    }
+  }
+
   // 시나리오별 데이터
   Map<String, dynamic> _getScenarioData(String scenario) {
     final data = {
       'street': {
         'prompt': 'Look at this busy street scene!',
-        'keywords': ['street', 'people'],
-        'sentence': 'The street is busy with people and cars',
+        'keywords': ['street', 'people', 'walking'],
+        'sentence': 'The street is busy with people walking',
       },
       'restaurant': {
         'prompt': 'What do you see in this restaurant?',
-        'keywords': ['eating', 'waiter'],
-        'sentence': 'People are eating and the waiter is serving',
+        'keywords': ['eating', 'waiter', 'food'],
+        'sentence': 'People are eating food and the waiter is serving',
       },
       'park': {
         'prompt': 'Describe what\'s happening in the park!',
-        'keywords': ['trees', 'playing'],
+        'keywords': ['trees', 'playing', 'children'],
         'sentence': 'Children are playing under the trees',
       },
       'office': {
         'prompt': 'Tell me about this office scene.',
-        'keywords': ['working', 'computer'],
-        'sentence': 'Everyone is working at their computers',
+        'keywords': ['working', 'computer', 'desk'],
+        'sentence': 'Everyone is working at their desk computers',
       },
       'home': {
         'prompt': 'What\'s happening in this home?',
-        'keywords': ['family', 'dinner'],
-        'sentence': 'The family is having dinner together',
+        'keywords': ['family', 'dinner', 'table'],
+        'sentence': 'The family is having dinner at the table',
       },
     };
     
@@ -335,22 +413,66 @@ class _ImmersiveTrainingScreenState extends State<ImmersiveTrainingScreen>
               onPressed: () => Navigator.of(context).pop(),
             ),
             
-            // 레벨 표시
-            Container(
-              padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white24),
-              ),
-              child: Text(
-                _currentLevel.toUpperCase(),
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
+            // 자동 모드 토글 & 레벨 표시
+            Row(
+              children: [
+                // 자동 모드 토글
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: _isAutoListening ? Colors.green.withOpacity(0.2) : Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: _isAutoListening ? Colors.green : Colors.white24),
+                  ),
+                  child: InkWell(
+                    onTap: () {
+                      setState(() {
+                        _isAutoListening = !_isAutoListening;
+                      });
+                      if (_isAutoListening) {
+                        _startAutoListening();
+                      }
+                    },
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _isAutoListening ? Icons.mic : Icons.mic_off,
+                          size: 16,
+                          color: _isAutoListening ? Colors.green : Colors.white70,
+                        ),
+                        SizedBox(width: 6),
+                        Text(
+                          _isAutoListening ? 'AUTO' : 'MANUAL',
+                          style: TextStyle(
+                            color: _isAutoListening ? Colors.green : Colors.white70,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+                SizedBox(width: 10),
+                // 레벨 표시
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.white24),
+                  ),
+                  child: Text(
+                    _currentLevel.toUpperCase(),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+              ],
             ),
             
             // 새로고침
@@ -371,15 +493,18 @@ class _ImmersiveTrainingScreenState extends State<ImmersiveTrainingScreen>
       right: 20,
       child: FadeTransition(
         opacity: _fadeController,
-        child: Container(
-          padding: EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white24),
-            backdropFilter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          ),
-          child: Column(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(16),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: Container(
+              padding: EdgeInsets.all(20),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.white24),
+              ),
+              child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -400,6 +525,8 @@ class _ImmersiveTrainingScreenState extends State<ImmersiveTrainingScreen>
                 ),
               ),
             ],
+          ),
+            ),
           ),
         ),
       ),

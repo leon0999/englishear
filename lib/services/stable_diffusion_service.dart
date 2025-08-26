@@ -36,21 +36,21 @@ class StableDiffusionService {
     final Map<String, Map<String, dynamic>> levelConfigs = {
       'beginner': {
         'prompt': _buildBeginnerPrompt(theme),
-        'dimensions': ALLOWED_DIMENSIONS['square']!,
+        'dimensions': [768, 768],  // 더 작은 크기로 빠른 생성
         'cfg_scale': 7.0,
-        'steps': 20, // 빠른 생성
+        'steps': 15,  // 더 빠른 생성
       },
       'intermediate': {
         'prompt': _buildIntermediatePrompt(theme),
-        'dimensions': ALLOWED_DIMENSIONS['landscape']!,
+        'dimensions': ALLOWED_DIMENSIONS['portrait']!,  // 896x1152
         'cfg_scale': 7.5,
-        'steps': 25,
+        'steps': 20,
       },
       'advanced': {
         'prompt': _buildAdvancedPrompt(theme),
-        'dimensions': ALLOWED_DIMENSIONS['landscape']!,
+        'dimensions': ALLOWED_DIMENSIONS['square']!,  // 1024x1024
         'cfg_scale': 8.0,
-        'steps': 30,
+        'steps': 25,
       },
     };
 
@@ -154,41 +154,41 @@ class StableDiffusionService {
     }
   }
 
-  // 시나리오별 명확한 프롬프트 생성
+  // 시나리오별 명확한 프롬프트 생성 (최대 3-5명)
   String _buildBeginnerPrompt(String? theme) {
     final scenarios = {
-      'street': 'Clear urban street scene with visible pedestrians walking on sidewalk, cars on road, storefronts, daytime, bright colors, no text or signs',
-      'restaurant': 'Interior restaurant scene, people sitting at tables eating, waiter serving food, bright lighting, clear view, no text',
-      'park': 'Open park with green grass, people walking dogs, children playing on playground, trees, sunny day, no text',
-      'office': 'Modern office interior, people working at desks with computers, bright lighting, clear workspace, no text',
-      'home': 'Cozy home interior, family in living room, furniture visible, warm lighting, no text',
+      'street': 'Clear urban street scene with exactly 3 people walking on sidewalk, minimal cars, storefronts, daytime, bright colors, simple composition, no text or signs',
+      'restaurant': 'Interior restaurant scene, 2-3 people sitting at one table eating, one waiter serving, bright lighting, focused view, no text',
+      'park': 'Open park with green grass, 2 people walking dog, 1-2 children playing, trees, sunny day, simple scene, no text',
+      'office': 'Modern office interior, 3 people working at desks with computers, bright lighting, clean workspace, no text',
+      'home': 'Cozy home interior, 3-4 family members in living room, simple furniture, warm lighting, no text',
     };
     
-    return scenarios[theme] ?? 'Simple daily life scene with people doing activities, bright colors, clear composition, no text';
+    return scenarios[theme] ?? 'Simple daily life scene with 3-4 people maximum doing activities, bright colors, focused composition, no text';
   }
 
   String _buildIntermediatePrompt(String? theme) {
     final scenarios = {
-      'street': 'Photorealistic busy street, multiple pedestrians, shops, traffic, urban environment, natural lighting, high detail, no text',
-      'restaurant': 'Realistic restaurant interior, customers dining, waiters serving, detailed decor, ambient lighting, no text',
-      'park': 'Natural park scene, people jogging, picnic areas, lake or pond, trees and paths, golden hour light, no text',
-      'office': 'Professional office environment, meeting rooms, people collaborating, modern furniture, natural light, no text',
-      'home': 'Modern home interior, family activities, kitchen or living area, detailed furniture, warm atmosphere, no text',
+      'street': 'Photorealistic street photography, exactly 4-5 people walking, minimal traffic, urban environment, natural lighting, focused composition, no text',
+      'restaurant': 'Realistic restaurant interior, 3-4 customers at tables, 1 waiter serving, clean decor, ambient lighting, no text',
+      'park': 'Natural park scene, 3 people jogging, 2 people at picnic, trees and paths, golden hour light, no crowds, no text',
+      'office': 'Professional office environment, 4 people in meeting room, modern furniture, natural light, clean composition, no text',
+      'home': 'Modern home interior, 4 family members doing activities, kitchen or living area, simple furniture, warm atmosphere, no text',
     };
     
-    return scenarios[theme] ?? 'Realistic scene with people interacting, professional quality, natural lighting, no text';
+    return scenarios[theme] ?? 'Realistic scene with 4-5 people maximum interacting, professional quality, natural lighting, focused view, no text';
   }
 
   String _buildAdvancedPrompt(String? theme) {
     final scenarios = {
-      'street': 'Complex urban intersection, crowds of people, multiple shops, vehicles, street vendors, detailed architecture, cinematic lighting, no text',
-      'restaurant': 'Upscale restaurant full scene, multiple tables, kitchen visible, staff and customers, elegant decor, atmospheric lighting, no text',
-      'park': 'Large public park, multiple activities, sports fields, walking paths, water features, diverse crowd, dynamic composition, no text',
-      'office': 'Corporate headquarters interior, open floor plan, multiple departments, glass walls, people in meetings, modern design, no text',
-      'home': 'Multi-room home view, family members in different activities, detailed interior design, lifestyle photography, no text',
+      'street': 'Urban street corner, exactly 5 people visible, 2 shops, minimal vehicles, clean architecture, cinematic lighting, no crowds, no text',
+      'restaurant': 'Upscale restaurant, 4-5 people at 2 tables, 1 waiter, elegant decor, atmospheric lighting, focused view, no text',
+      'park': 'Public park area, 5 people doing different activities (jogging, reading, walking), trees, water feature, no crowds, no text',
+      'office': 'Corporate office interior, 5 people in open space, glass walls, modern design, focused composition, no text',
+      'home': 'Home interior, 4-5 family members in living/dining area, clean interior design, lifestyle photography, no text',
     };
     
-    return scenarios[theme] ?? 'Complex photorealistic scene, multiple focal points, detailed environment, cinematic quality, no text';
+    return scenarios[theme] ?? 'Photorealistic scene with exactly 5 people maximum, clear focal point, detailed but clean environment, cinematic quality, no text';
   }
 
   // 이미지 캐싱 (API 호출 줄이기)
