@@ -154,19 +154,41 @@ class StableDiffusionService {
     }
   }
 
+  // 시나리오별 명확한 프롬프트 생성
   String _buildBeginnerPrompt(String? theme) {
-    final actualTheme = theme ?? 'daily life activity';
-    return 'Simple cartoon illustration of $actualTheme, bright colors, friendly, educational, no text';
+    final scenarios = {
+      'street': 'Clear urban street scene with visible pedestrians walking on sidewalk, cars on road, storefronts, daytime, bright colors, no text or signs',
+      'restaurant': 'Interior restaurant scene, people sitting at tables eating, waiter serving food, bright lighting, clear view, no text',
+      'park': 'Open park with green grass, people walking dogs, children playing on playground, trees, sunny day, no text',
+      'office': 'Modern office interior, people working at desks with computers, bright lighting, clear workspace, no text',
+      'home': 'Cozy home interior, family in living room, furniture visible, warm lighting, no text',
+    };
+    
+    return scenarios[theme] ?? 'Simple daily life scene with people doing activities, bright colors, clear composition, no text';
   }
 
   String _buildIntermediatePrompt(String? theme) {
-    final actualTheme = theme ?? 'people in modern office';
-    return 'Realistic scene of $actualTheme, professional, natural lighting, clear details, no text';
+    final scenarios = {
+      'street': 'Photorealistic busy street, multiple pedestrians, shops, traffic, urban environment, natural lighting, high detail, no text',
+      'restaurant': 'Realistic restaurant interior, customers dining, waiters serving, detailed decor, ambient lighting, no text',
+      'park': 'Natural park scene, people jogging, picnic areas, lake or pond, trees and paths, golden hour light, no text',
+      'office': 'Professional office environment, meeting rooms, people collaborating, modern furniture, natural light, no text',
+      'home': 'Modern home interior, family activities, kitchen or living area, detailed furniture, warm atmosphere, no text',
+    };
+    
+    return scenarios[theme] ?? 'Realistic scene with people interacting, professional quality, natural lighting, no text';
   }
 
   String _buildAdvancedPrompt(String? theme) {
-    final actualTheme = theme ?? 'busy city street';
-    return 'Complex photorealistic $actualTheme, multiple activities, detailed environment, no text';
+    final scenarios = {
+      'street': 'Complex urban intersection, crowds of people, multiple shops, vehicles, street vendors, detailed architecture, cinematic lighting, no text',
+      'restaurant': 'Upscale restaurant full scene, multiple tables, kitchen visible, staff and customers, elegant decor, atmospheric lighting, no text',
+      'park': 'Large public park, multiple activities, sports fields, walking paths, water features, diverse crowd, dynamic composition, no text',
+      'office': 'Corporate headquarters interior, open floor plan, multiple departments, glass walls, people in meetings, modern design, no text',
+      'home': 'Multi-room home view, family members in different activities, detailed interior design, lifestyle photography, no text',
+    };
+    
+    return scenarios[theme] ?? 'Complex photorealistic scene, multiple focal points, detailed environment, cinematic quality, no text';
   }
 
   // 이미지 캐싱 (API 호출 줄이기)
