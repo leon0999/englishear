@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/cupertino.dart';
 import 'training_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -94,10 +93,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
-                  colors: [
-                    Color(0xFF2196F3),
-                    Color(0xFF1976D2),
-                  ],
+                  colors: [Color(0xFF2196F3), Color(0xFF1976D2)],
                 ),
               ),
               child: SafeArea(
@@ -109,10 +105,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       const Text(
                         '안녕하세요! 👋',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 16,
-                        ),
+                        style: TextStyle(color: Colors.white70, fontSize: 16),
                       ),
                       const SizedBox(height: 8),
                       const Text(
@@ -169,7 +162,10 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           actions: [
             IconButton(
-              icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+              icon: const Icon(
+                Icons.notifications_outlined,
+                color: Colors.white,
+              ),
               onPressed: () {},
             ),
           ],
@@ -211,11 +207,7 @@ class _HomeScreenState extends State<HomeScreen> {
               color: Colors.orange.shade100,
               shape: BoxShape.circle,
             ),
-            child: const Icon(
-              Icons.flag,
-              color: Colors.orange,
-              size: 24,
-            ),
+            child: const Icon(Icons.flag, color: Colors.orange, size: 24),
           ),
           const SizedBox(width: 16),
           const Expanded(
@@ -224,18 +216,12 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Text(
                   '오늘의 미션',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
                 ),
                 SizedBox(height: 4),
                 Text(
                   'TED Talk 1개 완주하기',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -267,10 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
         gradient: const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF667EEA),
-            Color(0xFF764BA2),
-          ],
+          colors: [Color(0xFF667EEA), Color(0xFF764BA2)],
         ),
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
@@ -289,13 +272,13 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               const Text(
                 '현재 레벨',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
-                ),
+                style: TextStyle(color: Colors.white70, fontSize: 14),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white.withOpacity(0.2),
                   borderRadius: BorderRadius.circular(12),
@@ -328,10 +311,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   const Text(
                     '다음 레벨까지',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12,
-                    ),
+                    style: TextStyle(color: Colors.white70, fontSize: 12),
                   ),
                   Text(
                     '340 / 500 XP',
@@ -366,10 +346,7 @@ class _HomeScreenState extends State<HomeScreen> {
       children: [
         const Text(
           '빠른 시작',
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
         Row(
@@ -427,11 +404,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         child: Column(
           children: [
-            Icon(
-              icon,
-              color: color,
-              size: 32,
-            ),
+            Icon(icon, color: color, size: 32),
             const SizedBox(height: 8),
             Text(
               title,
@@ -456,15 +429,9 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             const Text(
               '추천 레슨',
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-              ),
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
-            TextButton(
-              onPressed: () {},
-              child: const Text('모두 보기'),
-            ),
+            TextButton(onPressed: () {}, child: const Text('모두 보기')),
           ],
         ),
         const SizedBox(height: 12),
@@ -563,20 +530,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildProgressTab() {
-    return const Center(
-      child: Text(
-        '진도 탭',
-        style: TextStyle(fontSize: 24),
-      ),
-    );
+    return const Center(child: Text('진도 탭', style: TextStyle(fontSize: 24)));
   }
 
   Widget _buildProfileTab() {
-    return const Center(
-      child: Text(
-        '프로필 탭',
-        style: TextStyle(fontSize: 24),
-      ),
-    );
+    return const Center(child: Text('프로필 탭', style: TextStyle(fontSize: 24)));
   }
 }

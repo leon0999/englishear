@@ -1,24 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
-import 'package:animated_text_kit/animated_text_kit.dart';
-import 'package:flutter_dotenv/flutter_dotenv.dart' as dotenv_pkg;
 import '../services/image_generation_service.dart' as ai_service;
 
 class TrainingScreen extends StatefulWidget {
+  const TrainingScreen({super.key});
+
   @override
   _TrainingScreenState createState() => _TrainingScreenState();
 }
 
 class _TrainingScreenState extends State<TrainingScreen> {
   // 서비스
-  final ai_service.ImageGenerationService _imageService = ai_service.ImageGenerationService();
-  
+  final ai_service.ImageGenerationService _imageService =
+      ai_service.ImageGenerationService();
+
   // 음성 인식
   late stt.SpeechToText _speech;
   bool _isListening = false;
   String _userSpeech = '';
   double _confidence = 0.0;
-  
+
   // 학습 데이터
   String _imageUrl = '';
   List<String> _keywords = [];
@@ -26,7 +27,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
   List<String> _revealedWords = [];
   String _currentLevel = 'beginner';
   bool _isLoading = false;
-  
+
   // 채점
   int _score = 0;
   Map<String, bool> _matchedWords = {};
@@ -36,31 +37,18 @@ class _TrainingScreenState extends State<TrainingScreen> {
   void initState() {
     super.initState();
     _speech = stt.SpeechToText();
-    
+
     // 🔥 즉시 API 테스트
     _testAPIConnection();
-    
+
     _loadNewScene();
   }
 
   // 🚀 API 연결 테스트
   Future<void> _testAPIConnection() async {
-    print('🚀 =======================================');
-    print('🚀 Testing Stable Diffusion API Connection');
-    print('🚀 =======================================');
-    
-    // API 키 존재 확인
-    final apiKey = dotenv_pkg.dotenv.env['STABILITY_API_KEY'] ?? '';
-    print('🔑 API Key exists: ${apiKey.isNotEmpty}');
-    print('🔑 API Key length: ${apiKey.length}');
-    if (apiKey.length > 10) {
-      print('🔑 API Key preview: ${apiKey.substring(0, 10)}...');
-    }
-    
+    print('🚀 Testing API Connection...');
+
     try {
-      print('📡 Calling generateLearningContent...');
-      final startTime = DateTime.now();
-      
       // 간단한 테스트 이미지 생성
       final testContent = await _imageService.generateLearningContent(
         level: 'beginner',
@@ -68,51 +56,38 @@ class _TrainingScreenState extends State<TrainingScreen> {
         isPremium: true,
         provider: ai_service.AIImageProvider.stableDiffusion,
       );
-      
-      final endTime = DateTime.now();
-      final duration = endTime.difference(startTime);
-      print('⏱️ API call took: ${duration.inSeconds} seconds');
-      
-      if (testContent['imageUrl'] != null && testContent['imageUrl'].isNotEmpty) {
-        final imageUrl = testContent['imageUrl'] as String;
-        print('✅ API SUCCESS!');
-        print('📏 Image URL length: ${imageUrl.length}');
-        print('🖼️ Image URL type: ${imageUrl.startsWith('data:image') ? 'Base64' : 'URL'}');
-        print('📝 Sentence: ${testContent['sentence']}');
-        print('🔑 Keywords: ${testContent['keywords']}');
-        
+
+      if (testContent['imageUrl'] != null &&
+          testContent['imageUrl'].isNotEmpty) {
+        print(
+          '✅ API SUCCESS! Image URL length: ${testContent['imageUrl'].length}',
+        );
+
         // 성공 시 스낵바 표시
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('API Connected! (${duration.inSeconds}s)'),
+              content: Text('API Connected Successfully!'),
               backgroundColor: Colors.green,
               duration: Duration(seconds: 3),
             ),
           );
         }
-      } else {
-        print('⚠️ API returned empty image URL');
       }
     } catch (e) {
       print('❌ API ERROR: $e');
-      print('❌ Error type: ${e.runtimeType}');
-      
+
       // 에러 시 스낵바 표시
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Using fallback images'),
-            backgroundColor: Colors.orange,
+            content: Text('API Error: Check console'),
+            backgroundColor: Colors.red,
             duration: Duration(seconds: 3),
           ),
         );
       }
     }
-    
-    print('🚀 =======================================');
-    print('🚀 API Test Complete');
-    print('🚀 =======================================');
   }
 
   // 새로운 장면 로드 (API 연동)
@@ -132,7 +107,8 @@ class _TrainingScreenState extends State<TrainingScreen> {
         level: _currentLevel,
         userId: 'test_user', // 실제로는 로그인한 사용자 ID
         isPremium: true, // 프리미엄으로 설정하여 더 많은 API 호출 가능
-        provider: ai_service.AIImageProvider.stableDiffusion, // Stable Diffusion API 사용
+        provider: ai_service
+            .AIImageProvider.stableDiffusion, // Stable Diffusion API 사용
       );
       print('✅ API Response received: ${content.keys.join(', ')}');
 
@@ -166,7 +142,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
         onStatus: (val) => print('onStatus: $val'),
         onError: (val) => print('onError: $val'),
       );
-      
+
       if (available) {
         setState(() => _isListening = true);
         _speech.listen(
@@ -187,7 +163,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
   // 키워드 체크
   void _checkKeywords(String speech) {
     final spokenWords = speech.toLowerCase().split(' ');
-    
+
     for (String keyword in _keywords) {
       if (spokenWords.contains(keyword.toLowerCase())) {
         setState(() {
@@ -224,12 +200,15 @@ class _TrainingScreenState extends State<TrainingScreen> {
     } catch (e) {
       print('Error evaluating pronunciation: $e');
       setState(() => _isLoading = false);
-      
+
       // 간단한 폴백 평가
       _showFeedbackDialog({
         'overall_score': _score,
         'feedback': 'Good effort! Keep practicing!',
-        'improvement_tips': ['Speak more clearly', 'Try to match the sentence structure'],
+        'improvement_tips': [
+          'Speak more clearly',
+          'Try to match the sentence structure',
+        ],
       });
     }
   }
@@ -257,31 +236,27 @@ class _TrainingScreenState extends State<TrainingScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                feedback,
-                style: TextStyle(fontSize: 16),
-              ),
+              Text(feedback, style: TextStyle(fontSize: 16)),
               if (tips.isNotEmpty) ...[
                 SizedBox(height: 16),
                 Text(
                   'Tips for improvement:',
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    fontSize: 14,
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                ),
+                ...tips.map(
+                  (tip) => Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('• ', style: TextStyle(fontSize: 14)),
+                        Expanded(
+                          child: Text(tip, style: TextStyle(fontSize: 14)),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-                ...tips.map((tip) => Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text('• ', style: TextStyle(fontSize: 14)),
-                      Expanded(
-                        child: Text(tip, style: TextStyle(fontSize: 14)),
-                      ),
-                    ],
-                  ),
-                )),
               ],
             ],
           ),
@@ -343,8 +318,8 @@ class _TrainingScreenState extends State<TrainingScreen> {
                   Icon(Icons.signal_cellular_alt, color: Colors.white),
                   SizedBox(width: 4),
                   Text(
-                    _currentLevel.substring(0, 1).toUpperCase() + 
-                    _currentLevel.substring(1),
+                    _currentLevel.substring(0, 1).toUpperCase() +
+                        _currentLevel.substring(1),
                     style: TextStyle(color: Colors.white),
                   ),
                 ],
@@ -353,245 +328,246 @@ class _TrainingScreenState extends State<TrainingScreen> {
           ),
         ],
       ),
-      body: _isLoading 
-        ? Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                CircularProgressIndicator(color: Colors.blue),
-                SizedBox(height: 16),
-                Text(
-                  'Generating learning content...',
-                  style: TextStyle(color: Colors.white70),
-                ),
-              ],
-            ),
-          )
-        : SingleChildScrollView(
-          padding: EdgeInsets.all(20),
-          child: Column(
-            children: [
-              // AI 생성 이미지
-              Container(
-                height: 250,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  color: Colors.white.withAlpha(25),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: _imageUrl.isNotEmpty 
-                    ? Image.network(
-                        _imageUrl,
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, loadingProgress) {
-                          if (loadingProgress == null) return child;
-                          return Center(
-                            child: CircularProgressIndicator(
-                              value: loadingProgress.expectedTotalBytes != null
-                                ? loadingProgress.cumulativeBytesLoaded /
-                                    loadingProgress.expectedTotalBytes!
-                                : null,
+      body: _isLoading
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CircularProgressIndicator(color: Colors.blue),
+                  SizedBox(height: 16),
+                  Text(
+                    'Generating learning content...',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ],
+              ),
+            )
+          : SingleChildScrollView(
+              padding: EdgeInsets.all(20),
+              child: Column(
+                children: [
+                  // AI 생성 이미지
+                  Container(
+                    height: 250,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(16),
+                      color: Colors.white.withAlpha(25),
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: _imageUrl.isNotEmpty
+                          ? Image.network(
+                              _imageUrl,
+                              fit: BoxFit.cover,
+                              loadingBuilder:
+                                  (context, child, loadingProgress) {
+                                if (loadingProgress == null) return child;
+                                return Center(
+                                  child: CircularProgressIndicator(
+                                    value: loadingProgress.expectedTotalBytes !=
+                                            null
+                                        ? loadingProgress
+                                                .cumulativeBytesLoaded /
+                                            loadingProgress.expectedTotalBytes!
+                                        : null,
+                                  ),
+                                );
+                              },
+                              errorBuilder: (context, error, stackTrace) {
+                                return Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.broken_image,
+                                        color: Colors.white54,
+                                        size: 48,
+                                      ),
+                                      Text(
+                                        'Failed to load image',
+                                        style: TextStyle(color: Colors.white54),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            )
+                          : Center(
+                              child: Icon(
+                                Icons.image,
+                                size: 48,
+                                color: Colors.white.withAlpha(76),
+                              ),
                             ),
-                          );
-                        },
-                        errorBuilder: (context, error, stackTrace) {
-                          return Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.broken_image, 
-                                     color: Colors.white54, size: 48),
-                                Text('Failed to load image',
-                                     style: TextStyle(color: Colors.white54)),
-                              ],
-                            ),
-                          );
-                        },
-                      )
-                    : Center(
-                        child: Icon(
-                          Icons.image,
-                          size: 48,
-                          color: Colors.white.withAlpha(76),
-                        ),
-                      ),
-                ),
-              ),
-              
-              SizedBox(height: 24),
-              
-              // 핵심 단어들
-              Container(
-                padding: EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.white.withAlpha(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Keywords to include:',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
                     ),
-                    SizedBox(height: 8),
-                    Wrap(
-                      spacing: 8,
-                      children: _keywords.map((word) {
-                        final isMatched = _matchedWords[word] ?? false;
-                        return Chip(
-                          label: Text(word),
-                          backgroundColor: isMatched 
-                            ? Colors.green.withAlpha(76)
-                            : Colors.blue.withAlpha(76),
-                          labelStyle: TextStyle(
-                            color: isMatched ? Colors.greenAccent : Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-              ),
-              
-              SizedBox(height: 24),
-              
-              // 점진적으로 공개되는 문장
-              Container(
-                padding: EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  color: Colors.white.withAlpha(12),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Sentence hint:',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 14,
-                      ),
-                    ),
-                    SizedBox(height: 8),
-                    Text(
-                      _getRevealedSentence(),
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              
-              SizedBox(height: 24),
-              
-              // 사용자 음성 텍스트
-              if (_userSpeech.isNotEmpty)
-                Container(
-                  padding: EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    color: Colors.purple.withAlpha(25),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'You said:',
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
-                        ),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        _userSpeech,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              
-              SizedBox(height: 32),
-              
-              // 점수
-              Text(
-                'Score: $_score',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              
-              SizedBox(height: 32),
-              
-              // 마이크 버튼
-              GestureDetector(
-                onTap: _toggleListening,
-                child: Container(
-                  width: 80,
-                  height: 80,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: LinearGradient(
-                      colors: _isListening 
-                        ? [Colors.red, Colors.redAccent]
-                        : [Colors.blue, Colors.blueAccent],
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: (_isListening ? Colors.red : Colors.blue)
-                            .withAlpha(76),
-                        blurRadius: 20,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: Icon(
-                    _isListening ? Icons.mic : Icons.mic_none,
-                    color: Colors.white,
-                    size: 40,
-                  ),
-                ),
-              ),
-              
-              SizedBox(height: 16),
-              
-              Text(
-                _isListening ? 'Listening...' : 'Tap to speak',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 16,
-                ),
-              ),
 
-              // 새 장면 버튼
-              SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: _loadNewScene,
-                icon: Icon(Icons.refresh),
-                label: Text('New Scene'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.withAlpha(76),
-                  foregroundColor: Colors.white,
-                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                ),
+                  SizedBox(height: 24),
+
+                  // 핵심 단어들
+                  Container(
+                    padding: EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.white.withAlpha(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Keywords to include:',
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                        SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          children: _keywords.map((word) {
+                            final isMatched = _matchedWords[word] ?? false;
+                            return Chip(
+                              label: Text(word),
+                              backgroundColor: isMatched
+                                  ? Colors.green.withAlpha(76)
+                                  : Colors.blue.withAlpha(76),
+                              labelStyle: TextStyle(
+                                color: isMatched
+                                    ? Colors.greenAccent
+                                    : Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  SizedBox(height: 24),
+
+                  // 점진적으로 공개되는 문장
+                  Container(
+                    padding: EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(12),
+                      color: Colors.white.withAlpha(12),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Sentence hint:',
+                          style: TextStyle(color: Colors.white70, fontSize: 14),
+                        ),
+                        SizedBox(height: 8),
+                        Text(
+                          _getRevealedSentence(),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  SizedBox(height: 24),
+
+                  // 사용자 음성 텍스트
+                  if (_userSpeech.isNotEmpty)
+                    Container(
+                      padding: EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        color: Colors.purple.withAlpha(25),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'You said:',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 14,
+                            ),
+                          ),
+                          SizedBox(height: 8),
+                          Text(
+                            _userSpeech,
+                            style: TextStyle(color: Colors.white, fontSize: 16),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  SizedBox(height: 32),
+
+                  // 점수
+                  Text(
+                    'Score: $_score',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+
+                  SizedBox(height: 32),
+
+                  // 마이크 버튼
+                  GestureDetector(
+                    onTap: _toggleListening,
+                    child: Container(
+                      width: 80,
+                      height: 80,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: LinearGradient(
+                          colors: _isListening
+                              ? [Colors.red, Colors.redAccent]
+                              : [Colors.blue, Colors.blueAccent],
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: (_isListening ? Colors.red : Colors.blue)
+                                .withAlpha(76),
+                            blurRadius: 20,
+                            spreadRadius: 2,
+                          ),
+                        ],
+                      ),
+                      child: Icon(
+                        _isListening ? Icons.mic : Icons.mic_none,
+                        color: Colors.white,
+                        size: 40,
+                      ),
+                    ),
+                  ),
+
+                  SizedBox(height: 16),
+
+                  Text(
+                    _isListening ? 'Listening...' : 'Tap to speak',
+                    style: TextStyle(color: Colors.white70, fontSize: 16),
+                  ),
+
+                  // 새 장면 버튼
+                  SizedBox(height: 24),
+                  ElevatedButton.icon(
+                    onPressed: _loadNewScene,
+                    icon: Icon(Icons.refresh),
+                    label: Text('New Scene'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue.withAlpha(76),
+                      foregroundColor: Colors.white,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 12,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
     );
   }
 
@@ -599,10 +575,10 @@ class _TrainingScreenState extends State<TrainingScreen> {
     if (_revealedWords.isEmpty) {
       return _correctSentence.split(' ').map((_) => '___').join(' ');
     }
-    
+
     List<String> words = _correctSentence.split(' ');
     List<String> result = [];
-    
+
     for (String word in words) {
       bool revealed = false;
       for (String revealedWord in _revealedWords) {
@@ -613,7 +589,7 @@ class _TrainingScreenState extends State<TrainingScreen> {
       }
       result.add(revealed ? word : '___');
     }
-    
+
     return result.join(' ');
   }
 

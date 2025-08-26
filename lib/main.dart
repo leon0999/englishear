@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'screens/splash_screen.dart';
-import 'screens/home_screen.dart';
-import 'screens/onboarding_screen.dart';
 import 'screens/training_screen.dart'; // 🔥 추가
 import 'services/image_generation_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // 환경 변수 로드
   try {
     await dotenv.load(fileName: ".env");
@@ -17,7 +14,7 @@ void main() async {
   } catch (e) {
     print('Warning: Could not load .env file. Using default values.');
   }
-  
+
   // 이미지 생성 서비스 초기화
   try {
     final imageService = ImageGenerationService();
@@ -26,7 +23,7 @@ void main() async {
   } catch (e) {
     print('Warning: Image service initialization failed: $e');
   }
-  
+
   // iOS 스타일 설정
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -34,13 +31,13 @@ void main() async {
       statusBarIconBrightness: Brightness.dark,
     ),
   );
-  
+
   // 세로 모드만 허용
   SystemChrome.setPreferredOrientations([
     DeviceOrientation.portraitUp,
     DeviceOrientation.portraitDown,
   ]);
-  
+
   runApp(const EnglishEarApp());
 }
 
