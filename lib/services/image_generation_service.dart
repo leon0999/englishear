@@ -2,7 +2,7 @@ import 'openai_service.dart';
 import 'stable_diffusion_service.dart';
 import 'api_cost_optimizer.dart';
 
-enum ImageProvider {
+enum AIImageProvider {
   stableDiffusion, // 기본 (95% 저렴)
   openAI,         // 고품질 옵션
   cached,         // 캐시된 이미지
@@ -34,7 +34,7 @@ class ImageGenerationService {
     required String userId,
     required bool isPremium,
     String? theme,
-    ImageProvider provider = ImageProvider.stableDiffusion,
+    AIImageProvider provider = AIImageProvider.stableDiffusion,
   }) async {
     try {
       // 1. 사용량 체크
@@ -51,7 +51,7 @@ class ImageGenerationService {
       // 2. 캐시 확인
       final cacheKey = '$theme:$level';
       final cachedImage = _optimizer.getCachedImage(cacheKey, level);
-      if (cachedImage != null && provider == ImageProvider.cached) {
+      if (cachedImage != null && provider == AIImageProvider.cached) {
         final cachedSentence = _optimizer.getCachedSentence(cacheKey, level);
         if (cachedSentence != null) {
           return {
@@ -67,20 +67,20 @@ class ImageGenerationService {
       Map<String, dynamic> sentenceData = {};
 
       switch (provider) {
-        case ImageProvider.stableDiffusion:
+        case AIImageProvider.stableDiffusion:
           // Stable Diffusion (저렴한 옵션)
           imageUrl = await _generateWithStableDiffusion(level, theme);
           sentenceData = await _generateSentenceWithGPT(imageUrl, level);
           break;
           
-        case ImageProvider.openAI:
+        case AIImageProvider.openAI:
           // DALL-E 3 (고품질 옵션)
           imageUrl = await _generateWithDALLE(level, theme);
           sentenceData = await _generateSentenceWithGPT(imageUrl, level);
           break;
           
-        case ImageProvider.cached:
-        case ImageProvider.fallback:
+        case AIImageProvider.cached:
+        case AIImageProvider.fallback:
           // 폴백 데이터 사용
           final fallbackData = _getPreGeneratedContent(level);
           imageUrl = fallbackData['imageUrl']!;
@@ -93,7 +93,7 @@ class ImageGenerationService {
       }
 
       // 4. 캐시 저장
-      if (imageUrl.isNotEmpty && provider != ImageProvider.fallback) {
+      if (imageUrl.isNotEmpty && provider != AIImageProvider.fallback) {
         await _optimizer.cacheImage(cacheKey, level, imageUrl);
         await _optimizer.cacheSentence(cacheKey, level, sentenceData);
       }
