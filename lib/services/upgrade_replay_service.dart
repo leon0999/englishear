@@ -342,7 +342,7 @@ class UpgradeReplayService {
       .where((e) => e.value > 0)
       .map((e) => {'category': e.key, 'count': e.value})
       .toList()
-      ..sort((a, b) => b['count'].compareTo(a['count']));
+      ..sort((a, b) => (b['count'] as int).compareTo(a['count'] as int));
   }
   
   // 8. 다음 학습 단계 제안
