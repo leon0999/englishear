@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'screens/training_screen.dart'; // 🔥 추가
 import 'screens/immersive_training_screen.dart'; // 몰입형 화면 추가
+import 'screens/immersive_training_screen_v2.dart'; // 개선된 몰입형 화면
 import 'services/image_generation_service.dart';
 import 'services/stable_diffusion_service.dart';
 
@@ -84,8 +85,8 @@ class EnglishEarApp extends StatelessWidget {
           systemOverlayStyle: SystemUiOverlayStyle.dark,
         ),
       ),
-      // 🔥 개발 중 임시 - ImmersiveTrainingScreen 직접 실행
-      home: ImmersiveTrainingScreen(),
+      // 🔥 개발 중 임시 - ImmersiveTrainingScreenV2 직접 실행
+      home: ImmersiveTrainingScreenV2(),
       // initialRoute: '/home',
       // routes: {
       //   '/': (context) => const SplashScreen(),
