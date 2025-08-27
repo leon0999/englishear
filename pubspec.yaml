@@ -62,6 +62,12 @@ dependencies:
   
   # 환경 변수 관리
   flutter_dotenv: ^5.1.0
+  
+  # 인앱 구매
+  in_app_purchase: ^3.1.11
+  
+  # 날짜/시간 관리
+  intl: ^0.18.1
 
 dev_dependencies:
   flutter_test:
