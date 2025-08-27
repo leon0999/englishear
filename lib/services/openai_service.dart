@@ -39,15 +39,26 @@ class OpenAIService {
           'size': '1024x1024',
           'quality': 'standard', // 'standard' for cost optimization
           'style': 'natural', // 'natural' for realistic learning scenes
+          'response_format': 'b64_json', // Base64로 받기 (CORS 회피)
         },
       );
       
       if (response.statusCode == 200 && 
           response.data['data'] != null && 
           response.data['data'].isNotEmpty) {
-        final imageUrl = response.data['data'][0]['url'];
-        print('✅ [DALL-E 3] Image generated successfully');
-        return imageUrl;
+        // Base64 형식으로 받은 경우
+        if (response.data['data'][0]['b64_json'] != null) {
+          final base64Image = response.data['data'][0]['b64_json'];
+          print('✅ [DALL-E 3] Image generated successfully (Base64)');
+          // Data URL 형식으로 반환
+          return 'data:image/png;base64,$base64Image';
+        }
+        // URL 형식으로 받은 경우 (fallback)
+        else if (response.data['data'][0]['url'] != null) {
+          final imageUrl = response.data['data'][0]['url'];
+          print('✅ [DALL-E 3] Image generated successfully (URL)');
+          return imageUrl;
+        }
       }
       return '';
     } catch (e) {

@@ -63,13 +63,27 @@ class AudioService {
     }
   }
   
-  // 배경음악 페이드인 재생
-  Future<void> playBackgroundMusic(String url) async {
+  // 배경음악 페이드인 재생 (CORS 안전한 소스 사용)
+  Future<void> playBackgroundMusic(String scenario) async {
     try {
-      if (url.isEmpty) {
-        print('No background music URL provided');
+      // CORS가 허용된 오디오 소스 사용 (FreeSounds)
+      final audioUrls = {
+        'street': 'https://cdn.freesound.org/previews/316/316909_5123451-lq.mp3',
+        'restaurant': 'https://cdn.freesound.org/previews/564/564991_9497060-lq.mp3',
+        'park': 'https://cdn.freesound.org/previews/534/534481_11368968-lq.mp3',
+        'office': 'https://cdn.freesound.org/previews/371/371518_6891730-lq.mp3',
+        'home': 'https://cdn.freesound.org/previews/397/397846_5121236-lq.mp3',
+        'default': 'https://cdn.freesound.org/previews/316/316909_5123451-lq.mp3',
+      };
+      
+      final url = audioUrls[scenario] ?? audioUrls['default'];
+      
+      if (url == null || url.isEmpty) {
+        print('No background music URL for scenario: $scenario');
         return;
       }
+      
+      print('🎵 Playing background music for: $scenario');
       
       // 이전 음악 정지
       await bgmPlayer.stop();
@@ -84,8 +98,8 @@ class AudioService {
       _startFadeIn();
       
     } catch (e) {
-      print('Error playing background music: $e');
-      // 폴백: 로컬 배경음 또는 무음 처리
+      print('⚠️ Background music skipped: $e');
+      // 오디오 실패시 무시하고 계속 진행
     }
   }
   
@@ -141,38 +155,61 @@ class AudioService {
     }
   }
   
-  // TTS 재생 (플랫폼 TTS 사용)
+  // TTS 재생 (플랫폼 TTS 사용) - 타임아웃 개선
   Future<void> playTTS(String text) async {
     try {
       // 배경음악 볼륨 줄이기
       await bgmPlayer.setVolume(bgmVolume * 0.3);
       
-      // TTS 재생
-      await flutterTts.speak(text);
+      // 타임아웃과 함께 TTS 재생
+      await Future.any([
+        flutterTts.speak(text),
+        Future.delayed(Duration(seconds: 3)), // 3초 타임아웃
+      ]).catchError((e) {
+        print('TTS speak error: $e');
+      });
       
-      // TTS 완료 대기
-      await _waitForTTSCompletion();
+      // TTS 완료 대기 (개선된 버전)
+      await _waitForTTSCompletion(text);
       
       // 배경음악 볼륨 복원
       await bgmPlayer.setVolume(bgmVolume);
       
     } catch (e) {
-      print('Error playing TTS: $e');
+      print('TTS skipped: $e');
+      // TTS 실패시 자막으로 대체
+      _showSubtitle(text);
     }
   }
   
-  Future<void> _waitForTTSCompletion() async {
+  Future<void> _waitForTTSCompletion(String text) async {
     final completer = Completer<void>();
+    bool isCompleted = false;
     
     flutterTts.setCompletionHandler(() {
-      completer.complete();
+      if (!isCompleted) {
+        isCompleted = true;
+        completer.complete();
+      }
     });
     
-    // 타임아웃 설정 (최대 10초)
+    // 텍스트 길이 기반 동적 타임아웃 (단어당 0.5초, 최소 3초, 최대 10초)
+    final wordCount = text.split(' ').length;
+    final timeoutSeconds = (wordCount * 0.5).clamp(3.0, 10.0);
+    
     await completer.future.timeout(
-      Duration(seconds: 10),
-      onTimeout: () => print('TTS timeout'),
+      Duration(seconds: timeoutSeconds.round()),
+      onTimeout: () {
+        print('TTS timeout after ${timeoutSeconds}s');
+        isCompleted = true;
+      },
     );
+  }
+  
+  // 자막 표시 (TTS 대체)
+  void _showSubtitle(String text) {
+    print('📝 Subtitle: $text');
+    // 실제 구현은 UI 컨트롤러를 통해 처리
   }
   
   // OpenAI TTS API를 사용한 고품질 음성 생성

@@ -4,6 +4,7 @@ import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:ui';
+import 'dart:convert';
 import '../services/image_generation_service.dart' as ai_service;
 import '../services/content_generation_service.dart';
 import '../services/audio_service.dart';
@@ -134,8 +135,12 @@ class _ImmersiveTrainingScreenV2State extends State<ImmersiveTrainingScreenV2>
       setState(() => currentPhase = LearningPhase.ambience);
       _fadeController.forward();
       
-      if (content['ambientSound'] != null) {
-        await _audioService.playBackgroundMusic(content['ambientSound']);
+      // 시나리오 기반 배경음악 재생
+      try {
+        await _audioService.playBackgroundMusic(_scenario);
+      } catch (e) {
+        print('Background music failed: $e');
+        // 배경음악 없이 계속 진행
       }
       
       await Future.delayed(Duration(seconds: 2));
@@ -302,83 +307,19 @@ class _ImmersiveTrainingScreenV2State extends State<ImmersiveTrainingScreenV2>
           borderRadius: BorderRadius.circular(20),
           child: Stack(
             children: [
-              // 이미지 레이어
+              // 이미지 레이어 (Base64와 URL 둘 다 지원)
               if (_imageUrl.isNotEmpty)
-                Image.network(
-                  _imageUrl,
-                  fit: BoxFit.cover,
-                  width: double.infinity,
-                  height: double.infinity,
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    
-                    return Container(
-                      color: Colors.grey[900],
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            CircularProgressIndicator(
-                              value: loadingProgress.expectedTotalBytes != null
-                                  ? loadingProgress.cumulativeBytesLoaded /
-                                      loadingProgress.expectedTotalBytes!
-                                  : null,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
-                            ),
-                            SizedBox(height: 20),
-                            Text(
-                              'Loading image...',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    print('Image loading error: $error');
-                    return Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          colors: [Colors.grey[900]!, Colors.grey[800]!],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                      ),
-                      child: Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.broken_image,
-                              color: Colors.grey[600],
-                              size: 64,
-                            ),
-                            SizedBox(height: 16),
-                            Text(
-                              'Failed to load image',
-                              style: TextStyle(
-                                color: Colors.grey[600],
-                                fontSize: 16,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            SizedBox(height: 8),
-                            Text(
-                              'Using offline mode',
-                              style: TextStyle(
-                                color: Colors.grey[700],
-                                fontSize: 14,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
+                _buildImageWidget(),
+              
+              // 이미지 로딩 중이면 스켈레톤 표시
+              if (_imageUrl.isEmpty && currentPhase == LearningPhase.loading)
+                Container(
+                  color: Colors.grey[900],
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                    ),
+                  ),
                 ),
               
               // 그라데이션 오버레이
@@ -822,6 +763,113 @@ class _ImmersiveTrainingScreenV2State extends State<ImmersiveTrainingScreenV2>
             ),
           ),
         ],
+      ),
+    );
+  }
+  
+  // Base64 이미지와 URL 이미지 둘 다 처리하는 위젯
+  Widget _buildImageWidget() {
+    // Base64 데이터 URL인 경우
+    if (_imageUrl.startsWith('data:image')) {
+      try {
+        final base64String = _imageUrl.split(',')[1];
+        final imageBytes = base64Decode(base64String);
+        
+        return Image.memory(
+          imageBytes,
+          fit: BoxFit.cover,
+          width: double.infinity,
+          height: double.infinity,
+          errorBuilder: (context, error, stackTrace) {
+            print('Base64 image error: $error');
+            return _buildImageErrorWidget();
+          },
+        );
+      } catch (e) {
+        print('Base64 decoding error: $e');
+        return _buildImageErrorWidget();
+      }
+    }
+    
+    // 일반 URL 이미지인 경우
+    return Image.network(
+      _imageUrl,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        
+        return Container(
+          color: Colors.grey[900],
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                CircularProgressIndicator(
+                  value: loadingProgress.expectedTotalBytes != null
+                      ? loadingProgress.cumulativeBytesLoaded /
+                          loadingProgress.expectedTotalBytes!
+                      : null,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                ),
+                SizedBox(height: 20),
+                Text(
+                  'Loading image...',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        print('Network image error: $error');
+        return _buildImageErrorWidget();
+      },
+    );
+  }
+  
+  Widget _buildImageErrorWidget() {
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [Colors.grey[900]!, Colors.grey[800]!],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.image_not_supported,
+              color: Colors.grey[600],
+              size: 64,
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Image unavailable',
+              style: TextStyle(
+                color: Colors.grey[600],
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Continuing with text only',
+              style: TextStyle(
+                color: Colors.grey[700],
+                fontSize: 14,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
