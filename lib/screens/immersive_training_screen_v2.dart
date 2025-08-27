@@ -124,10 +124,10 @@ class _ImmersiveTrainingScreenV2State extends State<ImmersiveTrainingScreenV2>
       );
       
       setState(() {
-        smallTalkSentences = content['smallTalk'] ?? [];
-        lastSentence = content['lastSentence'] ?? '';
-        expectedResponse = content['expectedResponse'] ?? '';
-        alternativeResponses = content['alternatives'] ?? [];
+        smallTalkSentences = List<String>.from(content['smallTalk'] ?? []);
+        lastSentence = content['lastSentence']?.toString() ?? '';
+        expectedResponse = content['expectedResponse']?.toString() ?? '';
+        alternativeResponses = List<String>.from(content['alternatives'] ?? []);
       });
       
       // 2. 배경음악 시작 (페이드 인)
@@ -309,10 +309,74 @@ class _ImmersiveTrainingScreenV2State extends State<ImmersiveTrainingScreenV2>
                   fit: BoxFit.cover,
                   width: double.infinity,
                   height: double.infinity,
-                  errorBuilder: (context, error, stackTrace) {
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    
                     return Container(
-                      color: Colors.grey[800],
-                      child: Icon(Icons.image, color: Colors.grey[600], size: 100),
+                      color: Colors.grey[900],
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            CircularProgressIndicator(
+                              value: loadingProgress.expectedTotalBytes != null
+                                  ? loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!
+                                  : null,
+                              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+                            ),
+                            SizedBox(height: 20),
+                            Text(
+                              'Loading image...',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    print('Image loading error: $error');
+                    return Container(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          colors: [Colors.grey[900]!, Colors.grey[800]!],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.broken_image,
+                              color: Colors.grey[600],
+                              size: 64,
+                            ),
+                            SizedBox(height: 16),
+                            Text(
+                              'Failed to load image',
+                              style: TextStyle(
+                                color: Colors.grey[600],
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Using offline mode',
+                              style: TextStyle(
+                                color: Colors.grey[700],
+                                fontSize: 14,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     );
                   },
                 ),

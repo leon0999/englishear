@@ -59,16 +59,17 @@ class ContentGenerationService {
         final ambientSoundUrl = await _getAmbientSound(scenario);
         
         // 스몰톡 TTS 생성
-        final smallTalkAudio = await _generateSmallTalkAudio(jsonContent['smallTalk'] ?? []);
+        final smallTalkList = List<String>.from(jsonContent['smallTalk'] ?? []);
+        final smallTalkAudio = await _generateSmallTalkAudio(smallTalkList);
         
         return {
           'imageUrl': imageUrl,
           'ambientSound': ambientSoundUrl,
-          'smallTalk': jsonContent['smallTalk'] ?? _getDefaultSmallTalk(scenario),
+          'smallTalk': List<String>.from(jsonContent['smallTalk'] ?? _getDefaultSmallTalk(scenario)),
           'smallTalkAudio': smallTalkAudio,
-          'lastSentence': jsonContent['lastSentence'] ?? _getDefaultLastSentence(scenario),
-          'expectedResponse': jsonContent['expectedResponse'] ?? _getDefaultResponse(scenario),
-          'alternatives': jsonContent['alternatives'] ?? _getDefaultAlternatives(scenario),
+          'lastSentence': jsonContent['lastSentence']?.toString() ?? _getDefaultLastSentence(scenario),
+          'expectedResponse': jsonContent['expectedResponse']?.toString() ?? _getDefaultResponse(scenario),
+          'alternatives': List<String>.from(jsonContent['alternatives'] ?? _getDefaultAlternatives(scenario)),
         };
       }
       

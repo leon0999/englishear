@@ -2,6 +2,8 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:audioplayers/audioplayers.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -37,20 +39,28 @@ class AudioService {
   }
   
   Future<void> _initializeTTS() async {
-    await flutterTts.setLanguage("en-US");
-    await flutterTts.setSpeechRate(0.95); // 자연스러운 속도
-    await flutterTts.setVolume(ttsVolume);
-    await flutterTts.setPitch(1.0);
-    
-    // iOS 설정
-    await flutterTts.setIosAudioCategory(
-      IosTextToSpeechAudioCategory.playback,
-      [
-        IosTextToSpeechAudioCategoryOptions.allowBluetooth,
-        IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
-        IosTextToSpeechAudioCategoryOptions.mixWithOthers,
-      ],
-    );
+    try {
+      // 공통 설정
+      await flutterTts.setLanguage("en-US");
+      await flutterTts.setSpeechRate(0.95); // 자연스러운 속도
+      await flutterTts.setVolume(ttsVolume);
+      await flutterTts.setPitch(1.0);
+      
+      // iOS 전용 설정 (웹이 아니고 iOS 플랫폼인 경우만)
+      if (!kIsWeb && Platform.isIOS) {
+        await flutterTts.setIosAudioCategory(
+          IosTextToSpeechAudioCategory.playback,
+          [
+            IosTextToSpeechAudioCategoryOptions.allowBluetooth,
+            IosTextToSpeechAudioCategoryOptions.allowBluetoothA2DP,
+            IosTextToSpeechAudioCategoryOptions.mixWithOthers,
+          ],
+        );
+      }
+    } catch (e) {
+      print('TTS initialization warning: $e');
+      // TTS 초기화 실패는 치명적이지 않으므로 계속 진행
+    }
   }
   
   // 배경음악 페이드인 재생

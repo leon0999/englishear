@@ -19,20 +19,17 @@ class OpenAIService {
     ));
   }
 
-  // DALL-E 3로 학습용 장면 이미지 생성
+  // DALL-E 3로 학습용 장면 이미지 생성 (개선된 버전)
   Future<String> generateSceneImage({
     required String level,
+    String? scenario,
     String? customPrompt,
   }) async {
-    final prompts = {
-      'beginner': 'A simple, colorful illustration of daily life scene: person walking in a bright park with clear sky, cartoon style, child-friendly, no text, clear composition',
-      'intermediate': 'A modern workplace scene: people collaborating in a bright office, semi-realistic style, professional but friendly atmosphere, good lighting, no text',
-      'advanced': 'A complex urban scene: bustling city street with various activities, photorealistic style, detailed environment with shops and pedestrians, no text',
-    };
-    
-    final prompt = customPrompt ?? prompts[level] ?? prompts['beginner']!;
+    final prompt = customPrompt ?? _buildEnhancedPrompt(level, scenario);
     
     try {
+      print('🎨 [DALL-E 3] Generating image for $scenario ($level)');
+      
       final response = await _dio.post(
         '/images/generations',
         data: {
@@ -40,13 +37,17 @@ class OpenAIService {
           'prompt': prompt,
           'n': 1,
           'size': '1024x1024',
-          'quality': 'standard', // 'hd'는 2배 비용
-          'style': 'vivid', // 'natural' 옵션도 있음
+          'quality': 'standard', // 'standard' for cost optimization
+          'style': 'natural', // 'natural' for realistic learning scenes
         },
       );
       
-      if (response.data['data'] != null && response.data['data'].isNotEmpty) {
-        return response.data['data'][0]['url'];
+      if (response.statusCode == 200 && 
+          response.data['data'] != null && 
+          response.data['data'].isNotEmpty) {
+        final imageUrl = response.data['data'][0]['url'];
+        print('✅ [DALL-E 3] Image generated successfully');
+        return imageUrl;
       }
       return '';
     } catch (e) {
@@ -201,5 +202,37 @@ class OpenAIService {
       print('Error getting tutor response: $e');
       return 'I apologize, but I\'m having trouble responding right now. Please try again.';
     }
+  }
+  
+  // DALL-E 3용 향상된 프롬프트 생성
+  String _buildEnhancedPrompt(String level, String? scenario) {
+    final Map<String, Map<String, String>> prompts = {
+      'beginner': {
+        'street': 'A bright, friendly street scene with 3-4 people walking, clear storefronts, daytime, simple composition, educational illustration style, no text or signs',
+        'restaurant': 'A cozy restaurant interior with 2-3 people eating at tables, warm lighting, simple decor, clear view, educational style, no text',
+        'park': 'A sunny park with 2-3 people, green trees, playground, simple activities, bright colors, educational illustration, no text',
+        'office': 'A modern office with 3 people working at computers, bright space, clean desks, educational style, no text',
+        'home': 'A warm home interior with family of 3-4, living room setting, cozy atmosphere, educational style, no text',
+      },
+      'intermediate': {
+        'street': 'A realistic urban street with 4-5 pedestrians, shops, moderate traffic, natural lighting, photographic style, no text',
+        'restaurant': 'A restaurant scene with diners and waiter, atmospheric lighting, semi-realistic style, clear details, no text',
+        'park': 'An active park with people jogging and relaxing, natural scenery, golden hour light, photographic style, no text',
+        'office': 'A professional office with team meeting, modern furniture, natural light, business setting, no text',
+        'home': 'A modern home with family activities, open plan living, natural lighting, lifestyle photography, no text',
+      },
+      'advanced': {
+        'street': 'A detailed city street corner with diverse people, architectural details, dynamic urban life, photorealistic style, no text',
+        'restaurant': 'An upscale restaurant with multiple diners, elegant decor, sophisticated atmosphere, photorealistic, no text',
+        'park': 'A vibrant public park with various activities, landscape details, environmental portrait style, no text',
+        'office': 'A corporate office environment, glass walls, multiple professionals, high-end design, photorealistic, no text',
+        'home': 'A luxury home interior with family gathering, designer furniture, lifestyle photography style, no text',
+      },
+    };
+    
+    final levelPrompts = prompts[level] ?? prompts['beginner']!;
+    final basePrompt = levelPrompts[scenario] ?? levelPrompts['street']!;
+    
+    return '$basePrompt, high quality, clear composition, educational content, suitable for language learning';
   }
 }

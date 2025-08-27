@@ -62,19 +62,19 @@ class ImageGenerationService {
         }
       }
 
-      // 3. 이미지 생성
+      // 3. 이미지 생성 (DALL-E 3 우선 사용)
       String imageUrl = '';
       Map<String, dynamic> sentenceData = {};
 
       switch (provider) {
         case AIImageProvider.stableDiffusion:
-          // Stable Diffusion (저렴한 옵션)
-          imageUrl = await _generateWithStableDiffusion(level, theme);
+          // Stable Diffusion은 크레딧이 없으므로 DALL-E 3로 대체
+          imageUrl = await _generateWithDALLE(level, theme);
           sentenceData = await _generateSentenceWithGPT(imageUrl, level);
           break;
           
         case AIImageProvider.openAI:
-          // DALL-E 3 (고품질 옵션)
+          // DALL-E 3 (기본 옵션)
           imageUrl = await _generateWithDALLE(level, theme);
           sentenceData = await _generateSentenceWithGPT(imageUrl, level);
           break;
@@ -146,12 +146,20 @@ class ImageGenerationService {
   // DALL-E로 이미지 생성
   Future<String> _generateWithDALLE(String level, String? theme) async {
     try {
-      return await _openAIService.generateSceneImage(
+      final imageUrl = await _openAIService.generateSceneImage(
         level: level,
-        customPrompt: theme,
+        scenario: theme,
       );
+      
+      if (imageUrl.isNotEmpty) {
+        print('✅ [ImageGenService] DALL-E 3 image received');
+        return imageUrl;
+      }
+      
+      // 이미지 생성 실패시 폴백
+      return _getFallbackImage();
     } catch (e) {
-      print('DALL-E error: $e');
+      print('❌ [ImageGenService] DALL-E error: $e');
       return _getFallbackImage();
     }
   }
