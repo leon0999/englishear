@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'services/subscription_service.dart';
+import 'services/enhanced_subscription_service.dart';
 import 'screens/voice_conversation_screen.dart';
+import 'screens/enhanced_conversation_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,9 +43,10 @@ class EnglishEarApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => SubscriptionService()),
+        ChangeNotifierProvider(create: (_) => EnhancedSubscriptionService()),
       ],
       child: MaterialApp(
-        title: 'EnglishEar - Upgrade Your English',
+        title: 'EnglishEar Pro - AI English Practice',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,
@@ -62,7 +65,7 @@ class EnglishEarApp extends StatelessWidget {
             systemOverlayStyle: SystemUiOverlayStyle.light,
           ),
         ),
-        home: const VoiceConversationScreen(),
+        home: const EnhancedConversationScreen(),
       ),
     );
   }

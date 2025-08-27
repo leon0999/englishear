@@ -118,7 +118,7 @@ class VoiceConversationService {
     }
   }
   
-  // 2. 랜덤 시나리오 생성
+  // 2. 랜덤 시나리오 생성 (개선된 버전)
   Future<ConversationScenario> _generateRandomScenario() async {
     try {
       final response = await _dio.post(
