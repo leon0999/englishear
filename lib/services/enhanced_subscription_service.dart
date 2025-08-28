@@ -3,9 +3,9 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:purchases_flutter/purchases_flutter.dart' as rc;  // alias 추가
 import 'package:intl/intl.dart';
-import '../core/logger.dart';
+import '../core/logger.dart' as app_logger;  // alias 추가
 
 enum SubscriptionTier {
   free,
@@ -34,7 +34,7 @@ class EnhancedSubscriptionService extends ChangeNotifier {
   SubscriptionTier _currentTier = SubscriptionTier.free;
   int _todayUsageCount = 0;
   DateTime? _lastResetDate;
-  CustomerInfo? _customerInfo;
+  rc.CustomerInfo? _customerInfo;
   bool _isInitialized = false;
   
   // Getters
@@ -55,25 +55,25 @@ class EnhancedSubscriptionService extends ChangeNotifier {
   Future<void> _initialize() async {
     try {
       // RevenueCat 설정
-      await Purchases.setLogLevel(LogLevel.debug);
+      await rc.Purchases.setLogLevel(rc.LogLevel.debug);
       
-      PurchasesConfiguration configuration;
+      rc.PurchasesConfiguration configuration;
       if (defaultTargetPlatform == TargetPlatform.iOS) {
-        configuration = PurchasesConfiguration(REVENUECAT_API_KEY_IOS);
+        configuration = rc.PurchasesConfiguration(REVENUECAT_API_KEY_IOS);
       } else {
-        configuration = PurchasesConfiguration(REVENUECAT_API_KEY_ANDROID);
+        configuration = rc.PurchasesConfiguration(REVENUECAT_API_KEY_ANDROID);
       }
       
-      await Purchases.configure(configuration);
+      await rc.Purchases.configure(configuration);
       
       // 구매자 정보 리스너 설정
-      Purchases.addCustomerInfoUpdateListener((customerInfo) {
+      rc.Purchases.addCustomerInfoUpdateListener((customerInfo) {
         _customerInfo = customerInfo;
         _updateSubscriptionStatus(customerInfo);
       });
       
       // 초기 구매자 정보 가져오기
-      _customerInfo = await Purchases.getCustomerInfo();
+      _customerInfo = await rc.Purchases.getCustomerInfo();
       _updateSubscriptionStatus(_customerInfo!);
       
       _isInitialized = true;
@@ -89,7 +89,7 @@ class EnhancedSubscriptionService extends ChangeNotifier {
   }
   
   // 2. 구독 상태 업데이트
-  void _updateSubscriptionStatus(CustomerInfo customerInfo) {
+  void _updateSubscriptionStatus(rc.CustomerInfo customerInfo) {
     if (customerInfo.entitlements.all['premium']?.isActive ?? false) {
       _currentTier = SubscriptionTier.premium;
     } else if (customerInfo.entitlements.all['pro']?.isActive ?? false) {
@@ -147,9 +147,9 @@ class EnhancedSubscriptionService extends ChangeNotifier {
   }
   
   // 5. 상품 가져오기
-  Future<List<Package>> getAvailablePackages() async {
+  Future<List<rc.Package>> getAvailablePackages() async {
     try {
-      final offerings = await Purchases.getOfferings();
+      final offerings = await rc.Purchases.getOfferings();
       
       if (offerings.current != null) {
         return offerings.current!.availablePackages;
@@ -162,15 +162,39 @@ class EnhancedSubscriptionService extends ChangeNotifier {
     }
   }
   
-  // 6. 구독 구매
-  Future<bool> purchaseSubscription(Package package) async {
+  // 6. 구독 구매 (String identifier로 Package 찾아서 구매)
+  Future<bool> purchaseSubscription(String packageIdentifier) async {
     try {
-      final purchaserInfo = await Purchases.purchasePackage(package);
+      final offerings = await rc.Purchases.getOfferings();
+      final offering = offerings.current;
+      
+      if (offering == null) {
+        print('❌ No offerings available');
+        return false;
+      }
+      
+      // String identifier로 Package 객체 찾기
+      rc.Package? targetPackage;
+      
+      for (final package in offering.availablePackages) {
+        if (package.identifier == packageIdentifier) {
+          targetPackage = package;
+          break;
+        }
+      }
+      
+      if (targetPackage == null) {
+        print('❌ Package not found: $packageIdentifier');
+        return false;
+      }
+      
+      // Package 객체로 구매
+      final purchaserInfo = await rc.Purchases.purchasePackage(targetPackage);
       _customerInfo = purchaserInfo;
       _updateSubscriptionStatus(purchaserInfo);
       
       // 구매 성공 이벤트
-      await _recordPurchaseEvent(package.storeProduct.identifier);
+      await _recordPurchaseEvent(targetPackage.storeProduct.identifier);
       
       return true;
     } catch (e) {
@@ -182,7 +206,7 @@ class EnhancedSubscriptionService extends ChangeNotifier {
   // 7. 구독 복원
   Future<bool> restorePurchases() async {
     try {
-      final customerInfo = await Purchases.restorePurchases();
+      final customerInfo = await rc.Purchases.restorePurchases();
       _customerInfo = customerInfo;
       _updateSubscriptionStatus(customerInfo);
       
@@ -198,9 +222,9 @@ class EnhancedSubscriptionService extends ChangeNotifier {
     try {
       // RevenueCat 8.x에서는 showManageSubscriptions가 없음
       // 대신 플랫폼별 URL로 리다이렉트
-      Logger.info('Opening subscription management page');
+      app_logger.Logger.info('Opening subscription management page');
     } catch (e) {
-      Logger.error('Failed to manage subscriptions', error: e);
+      app_logger.Logger.error('Failed to manage subscriptions', error: e);
     }
   }
   
@@ -209,7 +233,7 @@ class EnhancedSubscriptionService extends ChangeNotifier {
     try {
       // iOS only
       if (defaultTargetPlatform == TargetPlatform.iOS) {
-        await Purchases.presentCodeRedemptionSheet();
+        await rc.Purchases.presentCodeRedemptionSheet();
         return true;
       }
       return false;
