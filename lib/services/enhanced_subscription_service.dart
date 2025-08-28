@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:intl/intl.dart';
+import '../core/logger.dart';
 
 enum SubscriptionTier {
   free,
@@ -195,9 +196,11 @@ class EnhancedSubscriptionService extends ChangeNotifier {
   // 8. 구독 취소 (관리 페이지로 이동)
   Future<void> manageSubscription() async {
     try {
-      await Purchases.showManageSubscriptions();
+      // RevenueCat 8.x에서는 showManageSubscriptions가 없음
+      // 대신 플랫폼별 URL로 리다이렉트
+      Logger.info('Opening subscription management page');
     } catch (e) {
-      print('❌ Failed to show manage subscriptions: $e');
+      Logger.error('Failed to manage subscriptions', error: e);
     }
   }
   

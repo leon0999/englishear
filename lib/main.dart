@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'services/enhanced_subscription_service.dart';
-import 'services/openai_service.dart';
+import 'services/openai_service_simple.dart';
 import 'services/conversation_service.dart';
 import 'services/usage_limit_service.dart';
 import 'core/logger.dart';
@@ -22,9 +22,9 @@ void main() async {
   
   // 서비스 초기화
   try {
-    final openAIService = OpenAIService();
+    final openAIService = OpenAIServiceSimple();
     await openAIService.initializeCache();
-    Logger.info('OpenAI service initialized with cache support');
+    Logger.info('OpenAI service initialized');
     
     final usageLimitService = UsageLimitService();
     await usageLimitService.initialize();

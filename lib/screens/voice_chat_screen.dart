@@ -158,10 +158,18 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
           ),
           ElevatedButton(
             onPressed: () async {
-              // 구독 처리
-              final subscriptionService = context.read<EnhancedSubscriptionService>();
-              await subscriptionService.purchaseSubscription('pro_monthly');
-              Navigator.pop(context);
+              // 구독 처리 
+              try {
+                final subscriptionService = context.read<EnhancedSubscriptionService>();
+                final success = await subscriptionService.purchaseSubscription('pro_monthly_9900');
+                if (success) {
+                  Navigator.pop(context);
+                  _showSuccess('Pro subscription activated!');
+                  await _usageLimitService.setProStatus(true);
+                }
+              } catch (e) {
+                _showError('Purchase failed. Please try again.');
+              }
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.purple,
@@ -278,6 +286,16 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
       SnackBar(
         content: Text(message),
         backgroundColor: Colors.red[600],
+      ),
+    );
+  }
+  
+  // 성공 표시
+  void _showSuccess(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.green[600],
       ),
     );
   }

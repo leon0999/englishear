@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
-import 'openai_service.dart';
+import 'openai_service_simple.dart';
 import '../core/logger.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:flutter_tts/flutter_tts.dart';
@@ -55,7 +55,7 @@ class ConversationSession {
 }
 
 class ConversationService extends ChangeNotifier {
-  final OpenAIService _openAI = OpenAIService();
+  final OpenAIServiceSimple _openAI = OpenAIServiceSimple();
   final FlutterTts _tts = FlutterTts();
   final stt.SpeechToText _stt = stt.SpeechToText();
   
