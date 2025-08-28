@@ -30,7 +30,7 @@ class OpenAIException extends AppException {
         );
 
   factory OpenAIException.fromDioError(dynamic error) {
-    if (error.response != null) {
+    if (error is DioException && error.response != null) {
       final statusCode = error.response?.statusCode ?? 0;
       final data = error.response?.data;
       
@@ -84,21 +84,21 @@ class OpenAIException extends AppException {
             code: 'API_ERROR',
           );
       }
-    } else if (error.type != null) {
+    } else if (error is DioException && error.type != null) {
       // Network errors
       String message = 'Network error occurred';
       String code = 'NETWORK_ERROR';
       
       switch (error.type) {
-        case DioErrorType.connectionTimeout:
+        case DioExceptionType.connectionTimeout:
           message = 'Connection timeout. Please check your internet connection.';
           code = 'TIMEOUT';
           break;
-        case DioErrorType.receiveTimeout:
+        case DioExceptionType.receiveTimeout:
           message = 'Response timeout. The server took too long to respond.';
           code = 'TIMEOUT';
           break;
-        case DioErrorType.connectionError:
+        case DioExceptionType.connectionError:
           message = 'Unable to connect to OpenAI servers. Please check your internet connection.';
           code = 'CONNECTION_ERROR';
           break;

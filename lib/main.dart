@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
-import 'services/subscription_service.dart';
 import 'services/enhanced_subscription_service.dart';
 import 'services/openai_service.dart';
+import 'services/conversation_service.dart';
+import 'services/usage_limit_service.dart';
 import 'core/logger.dart';
-import 'screens/voice_conversation_screen.dart';
-import 'screens/enhanced_conversation_screen.dart';
+import 'screens/voice_chat_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -20,13 +20,17 @@ void main() async {
     Logger.warning('Could not load .env file. Using default values.', data: e);
   }
   
-  // OpenAI 서비스 초기화
+  // 서비스 초기화
   try {
     final openAIService = OpenAIService();
     await openAIService.initializeCache();
     Logger.info('OpenAI service initialized with cache support');
+    
+    final usageLimitService = UsageLimitService();
+    await usageLimitService.initialize();
+    Logger.info('Usage limit service initialized');
   } catch (e) {
-    Logger.error('Failed to initialize OpenAI service', error: e);
+    Logger.error('Failed to initialize services', error: e);
   }
 
   // iOS 스타일 설정
@@ -53,11 +57,12 @@ class EnglishEarApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => SubscriptionService()),
         ChangeNotifierProvider(create: (_) => EnhancedSubscriptionService()),
+        ChangeNotifierProvider(create: (_) => ConversationService()),
+        ChangeNotifierProvider(create: (_) => UsageLimitService()),
       ],
       child: MaterialApp(
-        title: 'EnglishEar Pro - AI English Practice',
+        title: 'EnglishEar - AI Voice Chat',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,
@@ -76,7 +81,7 @@ class EnglishEarApp extends StatelessWidget {
             systemOverlayStyle: SystemUiOverlayStyle.light,
           ),
         ),
-        home: const EnhancedConversationScreen(),
+        home: const VoiceChatScreen(),
       ),
     );
   }

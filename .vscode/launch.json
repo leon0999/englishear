@@ -1,0 +1,35 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "EnglishEar (Chrome Debug)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "chrome",
+      "args": [
+        "--web-renderer",
+        "html",
+        "--web-port",
+        "5555"
+      ],
+      "env": {
+        "FLUTTER_WEB_USE_SKIA": "true"
+      }
+    },
+    {
+      "name": "EnglishEar (iOS Simulator)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "iPhone 15"
+    },
+    {
+      "name": "EnglishEar (Android)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "emulator-5554"
+    }
+  ]
+}
