@@ -1,0 +1,15 @@
+targets:
+  $default:
+    builders:
+      freezed:
+        options:
+          # 코드 생성 옵션
+          union_key: "type"
+          union_value_case: "pascal"
+          
+      json_serializable:
+        options:
+          # JSON 직렬화 옵션
+          explicit_to_json: true
+          field_rename: snake
+          include_if_null: false

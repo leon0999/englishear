@@ -80,10 +80,10 @@ class OpenAIService {
     
     try {
       final response = await _dio.post(
-        '/chat/completions',
-        data: {
-          'model': 'gpt-4-turbo-preview',
-          'messages': [
+          '/chat/completions',
+          data: {
+            'model': 'gpt-4-turbo-preview',
+            'messages': [
             {
               'role': 'system',
               'content': '''You are an English teaching assistant. Generate learning content based on the scene.
@@ -109,9 +109,11 @@ class OpenAIService {
             }
           ],
           'response_format': {'type': 'json_object'},
-          'temperature': 0.7,
-          'max_tokens': 300,
-        },
+            'temperature': 0.7,
+            'max_tokens': 300,
+          },
+        ),
+        retryIf: (e) => _isRetryableError(e),
       );
       
       final content = response.data['choices'][0]['message']['content'];
@@ -130,10 +132,10 @@ class OpenAIService {
   }) async {
     try {
       final response = await _dio.post(
-        '/chat/completions',
-        data: {
-          'model': 'gpt-4-turbo-preview',
-          'messages': [
+          '/chat/completions',
+          data: {
+            'model': 'gpt-4-turbo-preview',
+            'messages': [
             {
               'role': 'system',
               'content': '''You are an expert English pronunciation coach. Evaluate the user's speech.
@@ -166,9 +168,11 @@ class OpenAIService {
             }
           ],
           'response_format': {'type': 'json_object'},
-          'temperature': 0.3,
-          'max_tokens': 500,
-        },
+            'temperature': 0.3,
+            'max_tokens': 500,
+          },
+        ),
+        retryIf: (e) => _isRetryableError(e),
       );
       
       final content = response.data['choices'][0]['message']['content'];
@@ -186,10 +190,10 @@ class OpenAIService {
   }) async {
     try {
       final response = await _dio.post(
-        '/chat/completions',
-        data: {
-          'model': 'gpt-4-turbo-preview',
-          'messages': [
+          '/chat/completions',
+          data: {
+            'model': 'gpt-4-turbo-preview',
+            'messages': [
             {
               'role': 'system',
               'content': '''You are a friendly English tutor. Help users improve their English speaking skills.
@@ -203,9 +207,11 @@ class OpenAIService {
               'content': 'Context: $context\n\nStudent question: $userMessage'
             }
           ],
-          'temperature': 0.7,
-          'max_tokens': 200,
-        },
+            'temperature': 0.7,
+            'max_tokens': 200,
+          },
+        ),
+        retryIf: (e) => _isRetryableError(e),
       );
       
       return response.data['choices'][0]['message']['content'];

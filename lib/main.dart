@@ -4,6 +4,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
 import 'services/subscription_service.dart';
 import 'services/enhanced_subscription_service.dart';
+import 'services/openai_service.dart';
+import 'core/logger.dart';
 import 'screens/voice_conversation_screen.dart';
 import 'screens/enhanced_conversation_screen.dart';
 
@@ -13,9 +15,18 @@ void main() async {
   // 환경 변수 로드
   try {
     await dotenv.load(fileName: ".env");
-    print('✅ Environment variables loaded successfully');
+    Logger.info('Environment variables loaded successfully');
   } catch (e) {
-    print('⚠️ Warning: Could not load .env file. Using default values.');
+    Logger.warning('Could not load .env file. Using default values.', data: e);
+  }
+  
+  // OpenAI 서비스 초기화
+  try {
+    final openAIService = OpenAIService();
+    await openAIService.initializeCache();
+    Logger.info('OpenAI service initialized with cache support');
+  } catch (e) {
+    Logger.error('Failed to initialize OpenAI service', error: e);
   }
 
   // iOS 스타일 설정
