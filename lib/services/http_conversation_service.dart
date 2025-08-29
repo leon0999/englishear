@@ -208,7 +208,7 @@ class HTTPConversationService {
           'Content-Type': 'application/json',
         },
         body: jsonEncode({
-          'model': 'gpt-4-turbo-preview',
+          'model': 'gpt-3.5-turbo',  // Changed from gpt-4 for cost efficiency
           'messages': conversationHistory,
           'temperature': 0.8,
           'max_tokens': 150,

@@ -358,7 +358,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
           TextButton(
             onPressed: () {
               Navigator.of(context).pop();
-              _initializeRealtimeConnection();
+              _initializeConversationService();
             },
             child: const Text('Retry'),
           ),

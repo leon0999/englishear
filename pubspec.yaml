@@ -45,9 +45,6 @@ dependencies:
   # 음성 분석 & 채점
   permission_handler: ^11.0.1
   
-  # HTTP 통신
-  http: ^1.1.0
-  
   # UI/UX
   animated_text_kit: ^4.2.2
   flutter_animate: ^4.2.0
