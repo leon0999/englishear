@@ -47,10 +47,10 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
   final ScrollController _scrollController = ScrollController();
   
   // Stream Subscriptions - Reactive programming pattern
-  late StreamSubscription<String> _transcriptSubscription;
-  late StreamSubscription<String> _responseSubscription;
-  late StreamSubscription<bool> _connectionSubscription;
-  late StreamSubscription<double> _audioLevelSubscription;
+  StreamSubscription<String>? _transcriptSubscription;
+  StreamSubscription<String>? _responseSubscription;
+  StreamSubscription<bool>? _connectionSubscription;
+  StreamSubscription<double>? _audioLevelSubscription;
   
   // Waveform Data - Real-time visualization
   List<double> _waveformData = List.filled(50, 0.0);
@@ -61,8 +61,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
     super.initState();
     _initializeServices();
     _setupAnimations();
-    _setupStreamSubscriptions();
-    _initializeRealtimeConnection();
+    _initializeRealtimeConnection();  // This will call _setupStreamSubscriptions after initialization
   }
 
   /// Initialize core services with proper error handling
@@ -109,31 +108,51 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
 
   /// Setup reactive stream subscriptions
   void _setupStreamSubscriptions() {
+    // Cancel any existing subscriptions first
+    _cancelSubscriptions();
+    
     _transcriptSubscription = _realtimeService.transcriptStream.listen(
       _handleTranscriptUpdate,
       onError: (error) => AppLogger.error('Transcript stream error', error),
+      cancelOnError: false,
     );
     
     _responseSubscription = _realtimeService.responseStream.listen(
       _handleAIResponse,
       onError: (error) => AppLogger.error('Response stream error', error),
+      cancelOnError: false,
     );
     
     _connectionSubscription = _realtimeService.connectionStatusStream.listen(
       _handleConnectionStatusChange,
       onError: (error) => AppLogger.error('Connection status stream error', error),
+      cancelOnError: false,
     );
     
     _audioLevelSubscription = _realtimeService.audioLevelStream.listen(
       _handleAudioLevelUpdate,
       onError: (error) => AppLogger.error('Audio level stream error', error),
+      cancelOnError: false,
     );
+  }
+  
+  /// Cancel all stream subscriptions
+  void _cancelSubscriptions() {
+    _transcriptSubscription?.cancel();
+    _responseSubscription?.cancel();
+    _connectionSubscription?.cancel();
+    _audioLevelSubscription?.cancel();
+    _transcriptSubscription = null;
+    _responseSubscription = null;
+    _connectionSubscription = null;
+    _audioLevelSubscription = null;
   }
 
   /// Initialize real-time connection with retry logic
   Future<void> _initializeRealtimeConnection() async {
     try {
       await _realtimeService.initialize();
+      _setupStreamSubscriptions();  // Setup subscriptions after initialization
       setState(() {
         _isInitialized = true;
         _isConnected = true;
@@ -713,10 +732,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
   @override
   void dispose() {
     // Cancel all subscriptions
-    _transcriptSubscription.cancel();
-    _responseSubscription.cancel();
-    _connectionSubscription.cancel();
-    _audioLevelSubscription.cancel();
+    _cancelSubscriptions();
     
     // Dispose animation controllers
     _waveController.dispose();

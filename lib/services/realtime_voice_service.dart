@@ -13,8 +13,12 @@ class RealtimeVoiceService {
   final AudioPlayer _audioPlayer = AudioPlayer();
   StreamSubscription? _audioStreamSubscription;
   StreamSubscription? _websocketSubscription;
+  Timer? _reconnectTimer;
   bool _isConnected = false;
   bool _isRecording = false;
+  bool _isReconnecting = false;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 3;
   
   final _transcriptController = StreamController<String>.broadcast();
   final _responseController = StreamController<String>.broadcast();
@@ -31,7 +35,10 @@ class RealtimeVoiceService {
 
   Future<void> initialize() async {
     try {
-      Logger.info('Initializing Realtime Voice Service');
+      AppLogger.info('Initializing Realtime Voice Service');
+      
+      // Clean up any existing connection first
+      await _cleanup();
       
       final apiKey = dotenv.env['OPENAI_API_KEY'];
       if (apiKey == null || apiKey.isEmpty) {
@@ -57,11 +64,13 @@ class RealtimeVoiceService {
       _isConnected = true;
       _connectionStatusController.add(true);
       
-      Logger.info('Realtime Voice Service initialized successfully');
+      AppLogger.info('Realtime Voice Service initialized successfully');
+      _reconnectAttempts = 0;  // Reset attempts on successful connection
     } catch (e) {
-      Logger.error('Failed to initialize Realtime Voice Service', error: e);
+      AppLogger.error('Failed to initialize Realtime Voice Service', e);
       _isConnected = false;
       _connectionStatusController.add(false);
+      _scheduleReconnect();
       rethrow;
     }
   }
@@ -117,7 +126,7 @@ class RealtimeVoiceService {
       );
 
       _isRecording = true;
-      Logger.info('Started recording audio');
+      AppLogger.info('Started recording audio');
 
       _audioStreamSubscription = stream.listen(
         (chunk) {
@@ -127,11 +136,11 @@ class RealtimeVoiceService {
           }
         },
         onError: (error) {
-          Logger.error('Audio stream error', error: error);
+          AppLogger.error('Audio stream error', error);
         },
       );
     } catch (e) {
-      Logger.error('Failed to start conversation', error: e);
+      AppLogger.error('Failed to start conversation', e);
       _isRecording = false;
       rethrow;
     }
@@ -160,7 +169,7 @@ class RealtimeVoiceService {
 
   Future<void> stopConversation() async {
     try {
-      Logger.info('Stopping conversation');
+      AppLogger.info('Stopping conversation');
       
       await _audioStreamSubscription?.cancel();
       await _recorder.stop();
@@ -174,28 +183,35 @@ class RealtimeVoiceService {
       _isRecording = false;
       _audioLevelController.add(0.0);
     } catch (e) {
-      Logger.error('Failed to stop conversation', error: e);
+      AppLogger.error('Failed to stop conversation', e);
     }
   }
 
   void _listenToResponses() {
-    _websocketSubscription = _channel!.stream.listen(
+    // Cancel any existing subscription first
+    _websocketSubscription?.cancel();
+    
+    // Use asBroadcastStream to allow multiple listeners if needed
+    final broadcastStream = _channel!.stream.asBroadcastStream();
+    
+    _websocketSubscription = broadcastStream.listen(
       (message) {
         try {
           final data = jsonDecode(message);
           _handleWebSocketMessage(data);
         } catch (e) {
-          Logger.error('Failed to parse WebSocket message', error: e);
+          AppLogger.error('Failed to parse WebSocket message', e);
         }
       },
       onError: (error) {
-        Logger.error('WebSocket error', error: error);
+        AppLogger.error('WebSocket error', error);
         _handleDisconnection();
       },
       onDone: () {
-        Logger.info('WebSocket connection closed');
+        AppLogger.info('WebSocket connection closed');
         _handleDisconnection();
       },
+      cancelOnError: false,
     );
   }
 
@@ -220,11 +236,11 @@ class RealtimeVoiceService {
         break;
         
       case 'input_audio_buffer.speech_started':
-        Logger.info('User started speaking');
+        AppLogger.info('User started speaking');
         break;
         
       case 'input_audio_buffer.speech_stopped':
-        Logger.info('User stopped speaking');
+        AppLogger.info('User stopped speaking');
         break;
         
       case 'conversation.item.created':
@@ -234,15 +250,17 @@ class RealtimeVoiceService {
         break;
         
       case 'error':
-        Logger.error('Realtime API error', error: data['error']);
+        AppLogger.error('Realtime API error', data['error']);
         break;
         
       case 'session.created':
-        Logger.info('Session created successfully');
+        AppLogger.info('Session created successfully');
+        _isConnected = true;
+        _connectionStatusController.add(true);
         break;
         
       case 'session.updated':
-        Logger.info('Session updated successfully');
+        AppLogger.info('Session updated successfully');
         break;
     }
   }
@@ -266,7 +284,7 @@ class RealtimeVoiceService {
         mode: PlayerMode.lowLatency,
       );
     } catch (e) {
-      Logger.error('Failed to play audio chunk', error: e);
+      AppLogger.error('Failed to play audio chunk', e);
     }
   }
 
@@ -275,6 +293,42 @@ class RealtimeVoiceService {
     _isRecording = false;
     _connectionStatusController.add(false);
     _audioLevelController.add(0.0);
+    _scheduleReconnect();
+  }
+  
+  void _scheduleReconnect() {
+    if (_isReconnecting || _reconnectAttempts >= _maxReconnectAttempts) {
+      if (_reconnectAttempts >= _maxReconnectAttempts) {
+        AppLogger.error('Max reconnection attempts reached');
+      }
+      return;
+    }
+    
+    _isReconnecting = true;
+    _reconnectAttempts++;
+    
+    final delay = Duration(seconds: _reconnectAttempts * 2);
+    AppLogger.info('Attempting reconnection $_reconnectAttempts/$_maxReconnectAttempts in ${delay.inSeconds}s');
+    
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () async {
+      _isReconnecting = false;
+      try {
+        await initialize();
+      } catch (e) {
+        AppLogger.error('Reconnection attempt $_reconnectAttempts failed', e);
+      }
+    });
+  }
+  
+  Future<void> _cleanup() async {
+    _reconnectTimer?.cancel();
+    await _websocketSubscription?.cancel();
+    await _audioStreamSubscription?.cancel();
+    _channel?.sink.close();
+    _websocketSubscription = null;
+    _audioStreamSubscription = null;
+    _channel = null;
   }
 
   Future<void> sendTextMessage(String message) async {
@@ -302,13 +356,12 @@ class RealtimeVoiceService {
   }
 
   Future<void> dispose() async {
-    Logger.info('Disposing Realtime Voice Service');
+    AppLogger.info('Disposing Realtime Voice Service');
     
     await stopConversation();
-    await _audioStreamSubscription?.cancel();
-    await _websocketSubscription?.cancel();
+    await _cleanup();
+    _reconnectTimer?.cancel();
     
-    _channel?.sink.close();
     await _recorder.dispose();
     await _audioPlayer.dispose();
     
