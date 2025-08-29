@@ -1,6 +1,38 @@
 import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 
+// Simple AppLogger class for straightforward logging
+class AppLogger {
+  static bool _debugMode = true;
+  
+  static void info(String message) {
+    if (_debugMode) {
+      print('ℹ️ [INFO] $message');
+    }
+  }
+  
+  static void warning(String message) {
+    if (_debugMode) {
+      print('⚠️ [WARNING] $message');
+    }
+  }
+  
+  static void error(String message, [dynamic error]) {
+    if (_debugMode) {
+      print('❌ [ERROR] $message');
+      if (error != null) {
+        print('   Error details: $error');
+      }
+    }
+  }
+  
+  static void debug(String message) {
+    if (_debugMode) {
+      print('🔍 [DEBUG] $message');
+    }
+  }
+}
+
 enum LogLevel {
   debug,
   info,
