@@ -2,9 +2,7 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../services/realtime_voice_service.dart';
-import '../services/accurate_speech_service.dart';
-import '../services/natural_tts_service.dart';
+import '../services/http_conversation_service.dart';
 import '../core/logger.dart';
 
 /// Enterprise-grade ChatGPT-level voice conversation screen
@@ -19,10 +17,8 @@ class ChatGPTLevelScreen extends StatefulWidget {
 class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen> 
     with TickerProviderStateMixin {
   
-  // Core Services - Enterprise-grade dependency injection pattern
-  late final RealtimeVoiceService _realtimeService;
-  late final AccurateSpeechService _speechService;
-  late final NaturalTTSService _ttsService;
+  // Core Service - HTTP-based conversation service
+  late final HTTPConversationService _conversationService;
   
   // Animation Controllers - Smooth UI transitions
   late AnimationController _waveController;
@@ -61,19 +57,17 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
     super.initState();
     _initializeServices();
     _setupAnimations();
-    _initializeRealtimeConnection();  // This will call _setupStreamSubscriptions after initialization
+    _initializeConversationService();
   }
 
   /// Initialize core services with proper error handling
   void _initializeServices() {
     try {
-      _realtimeService = RealtimeVoiceService();
-      _speechService = AccurateSpeechService();
-      _ttsService = NaturalTTSService();
-      AppLogger.info('ChatGPT Level Screen: Services initialized successfully');
+      _conversationService = HTTPConversationService();
+      AppLogger.info('ChatGPT Level Screen: HTTP Conversation Service initialized');
     } catch (e) {
       AppLogger.error('Failed to initialize services', e);
-      _showErrorDialog('Service Initialization Error', 'Failed to initialize voice services. Please restart the app.');
+      _showErrorDialog('Service Initialization Error', 'Failed to initialize conversation service. Please restart the app.');
     }
   }
 
@@ -111,25 +105,25 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
     // Cancel any existing subscriptions first
     _cancelSubscriptions();
     
-    _transcriptSubscription = _realtimeService.transcriptStream.listen(
+    _transcriptSubscription = _conversationService.transcriptStream.listen(
       _handleTranscriptUpdate,
       onError: (error) => AppLogger.error('Transcript stream error', error),
       cancelOnError: false,
     );
     
-    _responseSubscription = _realtimeService.responseStream.listen(
+    _responseSubscription = _conversationService.responseStream.listen(
       _handleAIResponse,
       onError: (error) => AppLogger.error('Response stream error', error),
       cancelOnError: false,
     );
     
-    _connectionSubscription = _realtimeService.connectionStatusStream.listen(
+    _connectionSubscription = _conversationService.connectionStatusStream.listen(
       _handleConnectionStatusChange,
       onError: (error) => AppLogger.error('Connection status stream error', error),
       cancelOnError: false,
     );
     
-    _audioLevelSubscription = _realtimeService.audioLevelStream.listen(
+    _audioLevelSubscription = _conversationService.audioLevelStream.listen(
       _handleAudioLevelUpdate,
       onError: (error) => AppLogger.error('Audio level stream error', error),
       cancelOnError: false,
@@ -148,19 +142,19 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
     _audioLevelSubscription = null;
   }
 
-  /// Initialize real-time connection with retry logic
-  Future<void> _initializeRealtimeConnection() async {
+  /// Initialize conversation service
+  Future<void> _initializeConversationService() async {
     try {
-      await _realtimeService.initialize();
-      _setupStreamSubscriptions();  // Setup subscriptions after initialization
+      await _conversationService.initialize();
+      _setupStreamSubscriptions();
       setState(() {
         _isInitialized = true;
         _isConnected = true;
       });
-      AppLogger.info('Realtime connection established successfully');
+      AppLogger.info('Conversation service initialized successfully');
       _addSystemMessage('Connected to AI assistant. Tap the microphone to start conversation.');
     } catch (e) {
-      AppLogger.error('Failed to initialize realtime connection', e);
+      AppLogger.error('Failed to initialize conversation service', e);
       _showRetryDialog();
     }
   }
@@ -178,22 +172,14 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
 
   /// Handle AI response with natural conversation flow
   void _handleAIResponse(String response) {
-    if (response.contains('[Complete:')) {
-      final completeResponse = response.replaceAll(RegExp(r'\[Complete: (.*?)\]'), r'\1');
-      _addMessage(ConversationMessage(
-        text: completeResponse,
-        isUser: false,
-        timestamp: DateTime.now(),
-      ));
-      setState(() {
-        _isSpeaking = false;
-      });
-    } else {
-      // Partial response - update UI for streaming effect
-      setState(() {
-        _isSpeaking = true;
-      });
-    }
+    _addMessage(ConversationMessage(
+      text: response,
+      isUser: false,
+      timestamp: DateTime.now(),
+    ));
+    setState(() {
+      _isSpeaking = false;
+    });
   }
 
   /// Handle connection status changes with visual feedback
@@ -240,7 +226,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
       await Future.delayed(delay);
       
       try {
-        await _realtimeService.initialize();
+        await _conversationService.initialize();
         if (_isConnected) {
           _addSystemMessage('Reconnected successfully!');
           break;
@@ -295,7 +281,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
       ));
     }
     
-    await _realtimeService.startConversation();
+    await _conversationService.startRecording();
     AppLogger.info('Started listening for voice input');
   }
 
@@ -310,7 +296,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
     _pulseController.reset();
     _fadeController.reverse();
     
-    await _realtimeService.stopConversation();
+    await _conversationService.stopRecording();
     AppLogger.info('Stopped listening for voice input');
   }
 
@@ -739,10 +725,8 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
     _pulseController.dispose();
     _fadeController.dispose();
     
-    // Dispose services
-    _realtimeService.dispose();
-    _speechService.dispose();
-    _ttsService.dispose();
+    // Dispose service
+    _conversationService.dispose();
     
     // Dispose other resources
     _scrollController.dispose();
