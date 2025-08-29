@@ -8,6 +8,7 @@ import 'services/conversation_service.dart';
 import 'services/usage_limit_service.dart';
 import 'core/logger.dart';
 import 'screens/voice_chat_screen.dart';
+import 'screens/chatgpt_level_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -81,7 +82,7 @@ class EnglishEarApp extends StatelessWidget {
             systemOverlayStyle: SystemUiOverlayStyle.light,
           ),
         ),
-        home: const VoiceChatScreen(),
+        home: const ChatGPTLevelScreen(),
       ),
     );
   }

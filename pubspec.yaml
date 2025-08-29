@@ -79,6 +79,12 @@ dependencies:
   # URL launcher (구독 관리용)
   url_launcher: ^6.2.0
   
+  # 실시간 음성 대화용
+  web_socket_channel: ^2.4.0
+  record: ^5.0.4
+  http: ^1.1.0
+  http_parser: ^4.0.2
+  
   # Retry logic (사용 안함 - 직접 구현)
   # retry: ^3.1.2
   
