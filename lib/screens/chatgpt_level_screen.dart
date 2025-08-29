@@ -53,7 +53,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
   late StreamSubscription<double> _audioLevelSubscription;
   
   // Waveform Data - Real-time visualization
-  final List<double> _waveformData = List.filled(50, 0.0);
+  List<double> _waveformData = List.filled(50, 0.0);
   Timer? _waveformUpdateTimer;
   
   @override
@@ -71,9 +71,9 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
       _realtimeService = RealtimeVoiceService();
       _speechService = AccurateSpeechService();
       _ttsService = NaturalTTSService();
-      Logger.info('ChatGPT Level Screen: Services initialized successfully');
+      AppLogger.info('ChatGPT Level Screen: Services initialized successfully');
     } catch (e) {
-      Logger.error('Failed to initialize services', error: e);
+      AppLogger.error('Failed to initialize services', e);
       _showErrorDialog('Service Initialization Error', 'Failed to initialize voice services. Please restart the app.');
     }
   }
@@ -111,22 +111,22 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
   void _setupStreamSubscriptions() {
     _transcriptSubscription = _realtimeService.transcriptStream.listen(
       _handleTranscriptUpdate,
-      onError: (error) => Logger.error('Transcript stream error', error: error),
+      onError: (error) => AppLogger.error('Transcript stream error', error),
     );
     
     _responseSubscription = _realtimeService.responseStream.listen(
       _handleAIResponse,
-      onError: (error) => Logger.error('Response stream error', error: error),
+      onError: (error) => AppLogger.error('Response stream error', error),
     );
     
     _connectionSubscription = _realtimeService.connectionStatusStream.listen(
       _handleConnectionStatusChange,
-      onError: (error) => Logger.error('Connection status stream error', error: error),
+      onError: (error) => AppLogger.error('Connection status stream error', error),
     );
     
     _audioLevelSubscription = _realtimeService.audioLevelStream.listen(
       _handleAudioLevelUpdate,
-      onError: (error) => Logger.error('Audio level stream error', error: error),
+      onError: (error) => AppLogger.error('Audio level stream error', error),
     );
   }
 
@@ -138,10 +138,10 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
         _isInitialized = true;
         _isConnected = true;
       });
-      Logger.info('Realtime connection established successfully');
+      AppLogger.info('Realtime connection established successfully');
       _addSystemMessage('Connected to AI assistant. Tap the microphone to start conversation.');
     } catch (e) {
-      Logger.error('Failed to initialize realtime connection', error: e);
+      AppLogger.error('Failed to initialize realtime connection', e);
       _showRetryDialog();
     }
   }
@@ -199,11 +199,13 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
 
   /// Update waveform data for real-time visualization
   void _updateWaveformData(double level) {
-    // Create a new list to avoid fixed-length list issues
-    final newData = List<double>.from(_waveformData);
-    newData.removeAt(0);
-    newData.add(level * 100);
-    _waveformData = newData;
+    setState(() {
+      // Create a new list to avoid fixed-length list issues
+      final newData = List<double>.from(_waveformData);
+      newData.removeAt(0);
+      newData.add(level * 100);
+      _waveformData = newData;
+    });
   }
 
   /// Attempt reconnection with exponential backoff
@@ -215,7 +217,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
       retryCount++;
       final delay = Duration(seconds: retryCount * 2);
       
-      Logger.info('Attempting reconnection $retryCount/$maxRetries in ${delay.inSeconds}s');
+      AppLogger.info('Attempting reconnection $retryCount/$maxRetries in ${delay.inSeconds}s');
       await Future.delayed(delay);
       
       try {
@@ -225,7 +227,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
           break;
         }
       } catch (e) {
-        Logger.error('Reconnection attempt $retryCount failed', error: e);
+        AppLogger.error('Reconnection attempt $retryCount failed', e);
       }
     }
     
@@ -246,7 +248,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
         await _stopListening();
       }
     } catch (e) {
-      Logger.error('Failed to toggle recording', error: e);
+      AppLogger.error('Failed to toggle recording', e);
       _showErrorSnackBar('Recording error: ${e.toString()}');
     }
   }
@@ -275,7 +277,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
     }
     
     await _realtimeService.startConversation();
-    Logger.info('Started listening for voice input');
+    AppLogger.info('Started listening for voice input');
   }
 
   /// Stop listening with cleanup
@@ -290,7 +292,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
     _fadeController.reverse();
     
     await _realtimeService.stopConversation();
-    Logger.info('Stopped listening for voice input');
+    AppLogger.info('Stopped listening for voice input');
   }
 
   /// Add message to conversation with auto-scroll
@@ -730,7 +732,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
     _scrollController.dispose();
     _waveformUpdateTimer?.cancel();
     
-    Logger.info('ChatGPT Level Screen disposed successfully');
+    AppLogger.info('ChatGPT Level Screen disposed successfully');
     super.dispose();
   }
 }
