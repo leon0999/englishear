@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/http_conversation_service.dart';
 import '../core/logger.dart';
+import 'realtime_conversation_screen.dart';
 
 /// Enterprise-grade ChatGPT-level voice conversation screen
 /// Features: Real-time voice streaming, waveform visualization, natural conversation flow
@@ -145,16 +146,66 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
   /// Initialize conversation service
   Future<void> _initializeConversationService() async {
     try {
+      // Show dialog to let user choose between Realtime and HTTP API
+      _showAPISelectionDialog();
+    } catch (e) {
+      AppLogger.error('Failed to initialize conversation service', e);
+      _showRetryDialog();
+    }
+  }
+  
+  /// Show API selection dialog
+  void _showAPISelectionDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: const Text('Choose API Mode'),
+        content: const Text(
+          'Select how you want to connect:\n\n'
+          '• Realtime API: WebSocket streaming, lowest latency\n'
+          '• HTTP API: Traditional request-response, stable\n\n'
+          'Note: Realtime API requires sufficient credits (\$5+)'
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _useHTTPAPI();
+            },
+            child: const Text('Use HTTP API'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(context);
+              // Navigate to Realtime screen
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const RealtimeConversationScreen(),
+                ),
+              );
+            },
+            child: const Text('Use Realtime API'),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  /// Initialize HTTP API
+  Future<void> _useHTTPAPI() async {
+    try {
       await _conversationService.initialize();
       _setupStreamSubscriptions();
       setState(() {
         _isInitialized = true;
         _isConnected = true;
       });
-      AppLogger.info('Conversation service initialized successfully');
-      _addSystemMessage('Connected to AI assistant. Tap the microphone to start conversation.');
+      AppLogger.info('HTTP Conversation service initialized successfully');
+      _addSystemMessage('Connected to AI assistant (HTTP Mode). Tap the microphone to start conversation.');
     } catch (e) {
-      AppLogger.error('Failed to initialize conversation service', e);
+      AppLogger.error('Failed to initialize HTTP conversation service', e);
       _showRetryDialog();
     }
   }
