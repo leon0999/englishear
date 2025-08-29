@@ -38,12 +38,19 @@ class RealtimeVoiceService {
         throw Exception('OpenAI API key not found');
       }
 
+      // Note: OpenAI Realtime API requires proper authentication headers
+      // The WebSocket connection needs to be established with headers
+      final headers = {
+        'Authorization': 'Bearer $apiKey',
+        'OpenAI-Beta': 'realtime=v1',
+      };
+      
       _channel = WebSocketChannel.connect(
         Uri.parse('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17'),
-        protocols: ['realtime.openai.com'],
       );
 
-      await _sendAuthMessage(apiKey);
+      // Wait for connection to be established
+      await Future.delayed(Duration(milliseconds: 100));
       await _configureSession();
       _listenToResponses();
       
@@ -59,14 +66,6 @@ class RealtimeVoiceService {
     }
   }
 
-  Future<void> _sendAuthMessage(String apiKey) async {
-    _channel!.sink.add(jsonEncode({
-      'type': 'session.update',
-      'session': {
-        'authorization': 'Bearer $apiKey',
-      }
-    }));
-  }
 
   Future<void> _configureSession() async {
     _channel!.sink.add(jsonEncode({

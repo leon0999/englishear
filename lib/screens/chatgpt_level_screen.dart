@@ -199,8 +199,11 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
 
   /// Update waveform data for real-time visualization
   void _updateWaveformData(double level) {
-    _waveformData.removeAt(0);
-    _waveformData.add(level * 100);
+    // Create a new list to avoid fixed-length list issues
+    final newData = List<double>.from(_waveformData);
+    newData.removeAt(0);
+    newData.add(level * 100);
+    _waveformData = newData;
   }
 
   /// Attempt reconnection with exponential backoff
