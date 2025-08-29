@@ -16,22 +16,22 @@ void main() async {
   // 환경 변수 로드
   try {
     await dotenv.load(fileName: ".env");
-    Logger.info('Environment variables loaded successfully');
+    AppLogger.info('Environment variables loaded successfully');
   } catch (e) {
-    Logger.warning('Could not load .env file. Using default values.', data: e);
+    AppLogger.warning('Could not load .env file. Using default values.');
   }
   
   // 서비스 초기화
   try {
     final openAIService = OpenAIServiceSimple();
     await openAIService.initializeCache();
-    Logger.info('OpenAI service initialized');
+    AppLogger.info('OpenAI service initialized');
     
     final usageLimitService = UsageLimitService();
     await usageLimitService.initialize();
-    Logger.info('Usage limit service initialized');
+    AppLogger.info('Usage limit service initialized');
   } catch (e) {
-    Logger.error('Failed to initialize services', error: e);
+    AppLogger.error('Failed to initialize services', e);
   }
 
   // iOS 스타일 설정
