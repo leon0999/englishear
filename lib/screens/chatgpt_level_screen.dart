@@ -146,20 +146,36 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
   /// Initialize conversation service
   Future<void> _initializeConversationService() async {
     try {
-      // Show dialog to let user choose between Realtime and HTTP API
-      _showAPISelectionDialog();
+      // Delay dialog to ensure widget is fully built
+      if (mounted) {
+        // Use WidgetsBinding to show dialog after frame is complete
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _showAPISelectionDialog();
+          }
+        });
+      }
     } catch (e) {
       AppLogger.error('Failed to initialize conversation service', e);
-      _showRetryDialog();
+      if (mounted) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _showRetryDialog();
+          }
+        });
+      }
     }
   }
   
   /// Show API selection dialog
   void _showAPISelectionDialog() {
+    // Safety check for mounted state
+    if (!mounted) return;
+    
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Choose API Mode'),
         content: const Text(
           'Select how you want to connect:\n\n'
@@ -170,14 +186,14 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
         actions: [
           TextButton(
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               _useHTTPAPI();
             },
             child: const Text('Use HTTP API'),
           ),
           ElevatedButton(
             onPressed: () {
-              Navigator.pop(context);
+              Navigator.pop(dialogContext);
               // Navigate to Realtime screen
               Navigator.pushReplacement(
                 context,
@@ -287,7 +303,7 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
       }
     }
     
-    if (!_isConnected) {
+    if (!_isConnected && mounted) {
       _showRetryDialog();
     }
   }
@@ -379,14 +395,16 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
 
   /// Show error dialog with retry option
   void _showErrorDialog(String title, String message) {
+    if (!mounted) return;
+    
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text(title),
         content: Text(message),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('OK'),
           ),
         ],
@@ -396,19 +414,21 @@ class _ChatGPTLevelScreenState extends State<ChatGPTLevelScreen>
 
   /// Show retry dialog for connection issues
   void _showRetryDialog() {
+    if (!mounted) return;
+    
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('Connection Failed'),
         content: const Text('Unable to connect to AI assistant. Would you like to retry?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: const Text('Cancel'),
           ),
           TextButton(
             onPressed: () {
-              Navigator.of(context).pop();
+              Navigator.of(dialogContext).pop();
               _initializeConversationService();
             },
             child: const Text('Retry'),
