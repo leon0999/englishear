@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
+import 'dart:io' show WebSocket, Platform;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../core/logger.dart';
@@ -9,6 +10,7 @@ import '../core/logger.dart';
 /// Provides real-time voice conversation using GPT-4 Realtime model
 class OpenAIRealtimeWebSocket {
   WebSocketChannel? _channel;
+  WebSocket? _iosWebSocket;  // iOS-specific WebSocket
   final String apiKey;
   
   // Stream controllers for UI updates
@@ -40,27 +42,54 @@ class OpenAIRealtimeWebSocket {
     try {
       AppLogger.info('Connecting to OpenAI Realtime API...');
       
-      // Create WebSocket connection
-      _channel = WebSocketChannel.connect(
-        Uri.parse('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17'),
-      );
-      
-      // Add authentication headers via subprotocol (web limitation)
-      // Note: In web, headers cannot be set directly, we'll send auth after connection
-      
-      // Listen to WebSocket events
-      _channel!.stream.listen(
-        _handleServerEvent,
-        onError: (error) {
-          AppLogger.error('WebSocket error', error);
-          _errorController.add('Connection error: $error');
-          _handleDisconnection();
-        },
-        onDone: () {
-          AppLogger.info('WebSocket connection closed');
-          _handleDisconnection();
-        },
-      );
+      // Use platform-specific WebSocket implementation
+      if (Platform.isIOS || Platform.isAndroid) {
+        // iOS/Android: Use dart:io WebSocket with headers
+        _iosWebSocket = await WebSocket.connect(
+          'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17',
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'OpenAI-Beta': 'realtime=v1',
+          },
+        );
+        
+        AppLogger.info('✅ Connected to Realtime API (iOS/Android)');
+        _isConnected = true;
+        _connectionStatusController.add(true);
+        
+        // Listen to WebSocket events
+        _iosWebSocket!.listen(
+          (data) => _handleServerEvent(data),
+          onError: (error) {
+            AppLogger.error('WebSocket error', error);
+            _errorController.add('Connection error: $error');
+            _handleDisconnection();
+          },
+          onDone: () {
+            AppLogger.info('WebSocket connection closed');
+            _handleDisconnection();
+          },
+        );
+      } else {
+        // Web: Use WebSocketChannel (headers not supported)
+        _channel = WebSocketChannel.connect(
+          Uri.parse('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17'),
+        );
+        
+        // Listen to WebSocket events
+        _channel!.stream.listen(
+          _handleServerEvent,
+          onError: (error) {
+            AppLogger.error('WebSocket error', error);
+            _errorController.add('Connection error: $error');
+            _handleDisconnection();
+          },
+          onDone: () {
+            AppLogger.info('WebSocket connection closed');
+            _handleDisconnection();
+          },
+        );
+      }
       
       // Send authentication and session setup
       await _setupSession();
@@ -111,15 +140,21 @@ Provide positive feedback and encouragement.''',
   
   /// Send event to WebSocket
   void _sendEvent(Map<String, dynamic> event) {
-    if (_channel == null) {
-      AppLogger.error('Cannot send event: WebSocket not connected');
-      return;
-    }
-    
     try {
       final jsonEvent = jsonEncode(event);
-      _channel!.sink.add(jsonEvent);
-      AppLogger.info('Sent event: ${event['type']}');
+      
+      if (_iosWebSocket != null) {
+        // iOS/Android: Send via dart:io WebSocket
+        _iosWebSocket!.add(jsonEvent);
+        AppLogger.info('Sent event (iOS): ${event['type']}');
+      } else if (_channel != null) {
+        // Web: Send via WebSocketChannel
+        _channel!.sink.add(jsonEvent);
+        AppLogger.info('Sent event (Web): ${event['type']}');
+      } else {
+        AppLogger.error('Cannot send event: WebSocket not connected');
+        return;
+      }
     } catch (e) {
       AppLogger.error('Failed to send event', e);
     }
@@ -300,44 +335,91 @@ Provide positive feedback and encouragement.''',
     try {
       AppLogger.info('Testing Realtime API access...');
       
-      final testChannel = WebSocketChannel.connect(
-        Uri.parse('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17'),
-      );
-      
-      // Send test auth
-      testChannel.sink.add(jsonEncode({
-        'type': 'session.update',
-        'auth': apiKey,
-      }));
-      
-      // Wait for response
-      final completer = Completer<bool>();
-      
-      testChannel.stream.listen(
-        (message) {
-          final event = jsonDecode(message);
-          if (event['type'] == 'error') {
-            AppLogger.error('Realtime API test failed: ${event['error']['message']}');
+      if (Platform.isIOS || Platform.isAndroid) {
+        // iOS/Android test with headers
+        final testSocket = await WebSocket.connect(
+          'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17',
+          headers: {
+            'Authorization': 'Bearer $apiKey',
+            'OpenAI-Beta': 'realtime=v1',
+          },
+        );
+        
+        final completer = Completer<bool>();
+        
+        testSocket.listen(
+          (data) {
+            final event = jsonDecode(data);
+            if (event['type'] == 'session.created') {
+              AppLogger.info('✅ Realtime API test successful!');
+              completer.complete(true);
+            } else if (event['type'] == 'error') {
+              AppLogger.error('Realtime API test failed: ${event['error']['message']}');
+              completer.complete(false);
+            }
+          },
+          onError: (error) {
+            AppLogger.error('Test connection error', error);
             completer.complete(false);
-          } else if (event['type'] == 'session.created') {
-            AppLogger.info('Realtime API test successful!');
-            completer.complete(true);
+          },
+        );
+        
+        // Send test message
+        testSocket.add(jsonEncode({
+          'type': 'session.update',
+          'session': {
+            'modalities': ['text'],
           }
-        },
-        onError: (error) {
-          AppLogger.error('Realtime API test error', error);
-          completer.complete(false);
-        },
-      );
-      
-      // Timeout after 5 seconds
-      final result = await completer.future.timeout(
-        const Duration(seconds: 5),
-        onTimeout: () => false,
-      );
-      
-      testChannel.sink.close();
-      return result;
+        }));
+        
+        final result = await completer.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => false,
+        );
+        
+        testSocket.close();
+        return result;
+      } else {
+        // Web test (limited)
+        final testChannel = WebSocketChannel.connect(
+          Uri.parse('wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17'),
+        );
+        
+        // Send test auth
+        testChannel.sink.add(jsonEncode({
+          'type': 'session.update',
+          'auth': apiKey,
+        }));
+        
+        // Wait for response
+        final completer = Completer<bool>();
+        
+        testChannel.stream.listen(
+          (message) {
+            final event = jsonDecode(message);
+            if (event['type'] == 'error') {
+              AppLogger.error('Realtime API test failed: ${event['error']['message']}');
+              completer.complete(false);
+            } else if (event['type'] == 'session.created') {
+              AppLogger.info('Realtime API test successful!');
+              completer.complete(true);
+            }
+          },
+          onError: (error) {
+            AppLogger.error('Realtime API test error', error);
+            completer.complete(false);
+          },
+        );
+        
+        // Timeout after 5 seconds
+        final result = await completer.future.timeout(
+          const Duration(seconds: 5),
+          onTimeout: () => false,
+        );
+        
+        testChannel.sink.close();
+        return result;
+      }
       
     } catch (e) {
       AppLogger.error('Realtime API test failed', e);
@@ -351,6 +433,7 @@ Provide positive feedback and encouragement.''',
   /// Disconnect from WebSocket
   void disconnect() {
     AppLogger.info('Disconnecting from Realtime API');
+    _iosWebSocket?.close();
     _channel?.sink.close();
     _handleDisconnection();
   }

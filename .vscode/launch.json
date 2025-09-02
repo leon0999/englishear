@@ -2,6 +2,27 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "EnglishEar (iPhone 16)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "25140DF7-063F-4DAE-92DD-5BC3BBEFBAA8",
+      "args": [
+        "--verbose"
+      ],
+      "env": {
+        "FLUTTER_DEBUG": "true"
+      }
+    },
+    {
+      "name": "EnglishEar (iOS - Any Device)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "deviceId": "iPhone",
+      "args": []
+    },
+    {
       "name": "EnglishEar (Chrome Debug)",
       "request": "launch",
       "type": "dart",
@@ -18,18 +39,20 @@
       }
     },
     {
-      "name": "EnglishEar (iOS Simulator)",
+      "name": "EnglishEar (Profile Mode)",
       "request": "launch",
       "type": "dart",
+      "flutterMode": "profile",
       "program": "lib/main.dart",
-      "deviceId": "iPhone 15"
+      "deviceId": "iPhone"
     },
     {
-      "name": "EnglishEar (Android)",
+      "name": "EnglishEar (Release Mode)",
       "request": "launch",
       "type": "dart",
+      "flutterMode": "release",
       "program": "lib/main.dart",
-      "deviceId": "emulator-5554"
+      "deviceId": "iPhone"
     }
   ]
 }
