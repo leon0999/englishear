@@ -3,8 +3,11 @@ import 'dart:typed_data';
 import 'package:record/record.dart';
 // import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
 import 'package:just_audio/just_audio.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import 'openai_realtime_websocket.dart';
 import '../core/logger.dart';
+import '../utils/audio_utils.dart';
 
 /// Audio Streaming Service for Realtime API
 /// Handles audio recording, streaming, and playback
@@ -170,12 +173,31 @@ class AudioStreamingService {
   /// Play a single audio chunk
   Future<void> _playAudioChunk(Uint8List chunk) async {
     try {
-      // For web, we need to convert PCM to a playable format
-      // This is a simplified version - in production, use Web Audio API
-      await _audioPlayer.play(
-        BytesSource(chunk),
-        mode: PlayerMode.lowLatency,
+      // PCM을 WAV로 변환
+      final wavData = AudioUtils.pcmToWav(
+        chunk,
+        sampleRate: 24000,
+        channels: 1,
+        bitsPerSample: 16,
       );
+      
+      // 임시 파일로 저장
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/audio_chunk_${DateTime.now().millisecondsSinceEpoch}.wav');
+      await tempFile.writeAsBytes(wavData);
+      
+      // just_audio로 재생
+      await _audioPlayer.setFilePath(tempFile.path);
+      await _audioPlayer.play();
+      
+      // 재생 완료 후 파일 삭제
+      _audioPlayer.processingStateStream.listen((state) {
+        if (state == ProcessingState.completed) {
+          if (tempFile.existsSync()) {
+            tempFile.deleteSync();
+          }
+        }
+      });
     } catch (e) {
       AppLogger.error('Failed to play audio chunk', e);
     }

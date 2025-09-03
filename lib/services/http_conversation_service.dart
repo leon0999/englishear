@@ -6,6 +6,8 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:record/record.dart';
 // import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
 import 'package:just_audio/just_audio.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 import '../core/logger.dart';
 
 /// HTTP-based conversation service using OpenAI Chat API
@@ -301,10 +303,25 @@ class HTTPConversationService {
     try {
       if (audioData.isEmpty) return;
       
-      await _audioPlayer.play(
-        BytesSource(audioData),
-        mode: PlayerMode.lowLatency,
-      );
+      // 임시 파일로 저장
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/temp_audio_${DateTime.now().millisecondsSinceEpoch}.mp3');
+      
+      // MP3 데이터 저장
+      await tempFile.writeAsBytes(audioData);
+      
+      // just_audio로 재생
+      await _audioPlayer.setFilePath(tempFile.path);
+      await _audioPlayer.play();
+      
+      // 재생 완료 후 파일 삭제
+      _audioPlayer.processingStateStream.listen((state) {
+        if (state == ProcessingState.completed) {
+          if (tempFile.existsSync()) {
+            tempFile.deleteSync();
+          }
+        }
+      });
       
       AppLogger.info('Playing audio response');
     } catch (e) {
