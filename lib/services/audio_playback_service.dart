@@ -1,12 +1,19 @@
 // lib/services/audio_playback_service.dart
 
+import 'dart:async';
 import 'dart:convert';
-import 'dart:html' as html;
+import 'dart:io' show File, Platform;
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:dio/dio.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:path_provider/path_provider.dart';
+import '../utils/audio_utils.dart';
+import '../core/logger.dart';
+
+// Conditional import for web
+import 'dart:html' as html if (dart.library.io) 'dart:io' as html;
 
 class AudioPlaybackService {
   final AudioPlayer _audioPlayer = AudioPlayer();
@@ -123,21 +130,50 @@ class AudioPlaybackService {
     }
   }
   
-  // 4. 모바일에서 재생
+  // 4. 모바일에서 재생 (iOS 호환)
   Future<void> _playOnMobile(Uint8List audioData) async {
+    File? tempFile;
+    
     try {
-      // Just Audio 플레이어 사용
-      final audioSource = AudioSource.uri(
-        Uri.dataFromBytes(audioData, mimeType: 'audio/mp3'),
-      );
-      
-      await _audioPlayer.setAudioSource(audioSource);
-      await _audioPlayer.play();
-      await _audioPlayer.playerStateStream.firstWhere(
-        (state) => state.processingState == ProcessingState.completed,
-      );
+      // iOS에서는 임시 파일을 사용하는 것이 더 안정적
+      if (!kIsWeb && Platform.isIOS) {
+        // 임시 디렉토리에 파일 생성
+        final tempDir = await getTemporaryDirectory();
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        tempFile = File('${tempDir.path}/tts_audio_$timestamp.mp3');
+        
+        // 오디오 데이터 쓰기
+        await tempFile.writeAsBytes(audioData);
+        
+        // 파일로부터 오디오 소스 설정
+        await _audioPlayer.setFilePath(tempFile.path);
+        await _audioPlayer.play();
+        await _audioPlayer.playerStateStream.firstWhere(
+          (state) => state.processingState == ProcessingState.completed,
+        );
+        
+        // 재생 완료 후 파일 삭제
+        if (tempFile.existsSync()) {
+          tempFile.deleteSync();
+        }
+      } else {
+        // Android 또는 다른 플랫폼: Data URI 사용
+        final audioSource = AudioSource.uri(
+          Uri.dataFromBytes(audioData, mimeType: 'audio/mp3'),
+        );
+        
+        await _audioPlayer.setAudioSource(audioSource);
+        await _audioPlayer.play();
+        await _audioPlayer.playerStateStream.firstWhere(
+          (state) => state.processingState == ProcessingState.completed,
+        );
+      }
       
     } catch (e) {
+      // 실패 시 임시 파일 정리
+      if (tempFile != null && tempFile.existsSync()) {
+        tempFile.deleteSync();
+      }
       print('❌ Mobile audio playback error: $e');
       throw e;
     }
@@ -231,7 +267,61 @@ class AudioPlaybackService {
     _audioCache.clear();
   }
   
-  // 11. 리소스 해제
+  // 11. PCM 오디오 재생 (OpenAI Realtime API용)
+  Future<void> playPCMAudio(String base64PCM) async {
+    try {
+      // PCM을 WAV로 변환
+      final wavData = AudioUtils.base64PcmToWav(base64PCM);
+      
+      if (kIsWeb) {
+        await _playOnWeb(wavData);
+      } else {
+        await _playPCMOnMobile(wavData);
+      }
+    } catch (e) {
+      AppLogger.error('Failed to play PCM audio', e);
+    }
+  }
+  
+  // 12. 모바일에서 PCM/WAV 재생 (iOS 호환)
+  Future<void> _playPCMOnMobile(Uint8List wavData) async {
+    File? tempFile;
+    
+    try {
+      // 임시 디렉토리에 WAV 파일 생성
+      final tempDir = await getTemporaryDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      tempFile = File('${tempDir.path}/pcm_audio_$timestamp.wav');
+      
+      // WAV 데이터 쓰기
+      await tempFile.writeAsBytes(wavData);
+      
+      // 파일로부터 오디오 소스 설정
+      await _audioPlayer.setFilePath(tempFile.path);
+      await _audioPlayer.play();
+      
+      // 재생 완료 후 파일 삭제 예약 (5초 후)
+      Timer(const Duration(seconds: 5), () {
+        if (tempFile != null && tempFile.existsSync()) {
+          try {
+            tempFile.deleteSync();
+            AppLogger.debug('Deleted temp audio file: ${tempFile.path}');
+          } catch (e) {
+            AppLogger.warning('Failed to delete temp file: ${tempFile.path}');
+          }
+        }
+      });
+      
+    } catch (e) {
+      // 실패 시 즉시 파일 삭제
+      if (tempFile != null && tempFile.existsSync()) {
+        tempFile.deleteSync();
+      }
+      AppLogger.error('PCM audio playback failed', e);
+    }
+  }
+  
+  // 13. 리소스 해제
   void dispose() {
     _audioPlayer.dispose();
     clearCache();
