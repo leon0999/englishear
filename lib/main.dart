@@ -67,6 +67,18 @@ class EnglishEarApp extends StatelessWidget {
       child: MaterialApp(
         title: 'EnglishEar - AI Voice Chat',
         debugShowCheckedModeBanner: false,
+        builder: (context, child) {
+          // 텍스트 스케일 제한으로 오버플로우 방지
+          return MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: MediaQuery.of(context).textScaler.clamp(
+                minScaleFactor: 0.8,
+                maxScaleFactor: 1.2,
+              ),
+            ),
+            child: child!,
+          );
+        },
         theme: ThemeData(
           brightness: Brightness.dark,
           primaryColor: Colors.blue,

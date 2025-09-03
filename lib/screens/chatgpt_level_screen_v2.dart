@@ -231,6 +231,8 @@ class _ChatGPTLevelScreenV2State extends State<ChatGPTLevelScreenV2>
                     color: Colors.grey[600],
                     fontSize: 12,
                   ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -240,6 +242,8 @@ class _ChatGPTLevelScreenV2State extends State<ChatGPTLevelScreenV2>
                     fontSize: 11,
                     fontStyle: FontStyle.italic,
                   ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
                 ),
               ],
             ),
@@ -603,24 +607,29 @@ class _ChatGPTLevelScreenV2State extends State<ChatGPTLevelScreenV2>
             onPressed: () => Navigator.of(context).pop(),
             icon: const Icon(Icons.arrow_back, color: Colors.white),
           ),
-          Column(
-            children: [
-              const Text(
-                'AI Conversation',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Text(
+                  'AI Conversation',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-              Text(
-                _selectedMode == 'http' ? 'HTTP Mode' : 'Realtime Mode',
-                style: const TextStyle(
-                  color: Colors.white60,
-                  fontSize: 12,
+                Text(
+                  _selectedMode == 'http' ? 'HTTP Mode' : 'Realtime Mode',
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontSize: 12,
+                  ),
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -723,6 +732,7 @@ class _ChatGPTLevelScreenV2State extends State<ChatGPTLevelScreenV2>
                   fontSize: 15,
                   fontWeight: isSystem ? FontWeight.w400 : FontWeight.w500,
                 ),
+                softWrap: true,
               ),
             ),
           ),
