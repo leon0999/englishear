@@ -4,7 +4,8 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:record/record.dart';
-import 'package:audioplayers/audioplayers.dart';
+// import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
+import 'package:just_audio/just_audio.dart';
 import '../core/logger.dart';
 
 /// HTTP-based conversation service using OpenAI Chat API
