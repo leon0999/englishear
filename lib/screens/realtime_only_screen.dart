@@ -1,9 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/openai_realtime_websocket.dart';
-import '../services/audio_streaming_service.dart';
+import '../services/realtime_audio_service.dart';
 import '../core/logger.dart';
 
 /// Realtime API 전용 대화 화면
@@ -20,7 +21,7 @@ class _RealtimeOnlyScreenState extends State<RealtimeOnlyScreen>
   
   // Core Services
   late final OpenAIRealtimeWebSocket _websocket;
-  late final AudioStreamingService _audioService;
+  late final RealtimeAudioService _audioService;
   
   // Animation Controllers
   late AnimationController _waveController;
@@ -59,7 +60,7 @@ class _RealtimeOnlyScreenState extends State<RealtimeOnlyScreen>
   
   void _initializeServices() {
     _websocket = OpenAIRealtimeWebSocket();
-    _audioService = AudioStreamingService(_websocket);
+    _audioService = RealtimeAudioService();
     
     // Listen to WebSocket events
     _subscriptions.add(
@@ -115,6 +116,15 @@ class _RealtimeOnlyScreenState extends State<RealtimeOnlyScreen>
         if (mounted) {
           _showError(error);
         }
+      }),
+    );
+    
+    // Listen for audio data from WebSocket and play it
+    _subscriptions.add(
+      _websocket.audioDataStream.listen((audioData) {
+        // Convert Uint8List to base64 for playback
+        final base64Audio = base64Encode(audioData);
+        _audioService.playAudioChunk(base64Audio);
       }),
     );
     
@@ -215,11 +225,15 @@ class _RealtimeOnlyScreenState extends State<RealtimeOnlyScreen>
     
     if (_isListening) {
       _pulseController.repeat(reverse: true);
-      await _audioService.startStreaming();
+      // Start recording and send audio to WebSocket
+      await _audioService.startRecording((audioData) {
+        // Send audio to Realtime API
+        _websocket.sendAudioData(audioData);
+      });
     } else {
       _pulseController.stop();
       _pulseController.reset();
-      await _audioService.stopStreaming();
+      await _audioService.stopRecording();
     }
   }
   

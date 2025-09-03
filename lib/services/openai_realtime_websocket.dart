@@ -280,6 +280,9 @@ Provide positive feedback and encouragement.''',
     });
   }
   
+  /// Alias for sendAudio for better API clarity
+  void sendAudioData(Uint8List audioData) => sendAudio(audioData);
+  
   /// Clear audio buffer
   void clearAudioBuffer() {
     _sendEvent({
