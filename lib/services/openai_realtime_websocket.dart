@@ -114,7 +114,7 @@ Be conversational, friendly, and encouraging.
 Keep responses concise (2-3 sentences max).
 Correct major errors gently by rephrasing.
 Provide positive feedback and encouragement.''',
-        'voice': 'nova',  // Natural female voice
+        'voice': 'alloy',  // Natural female voice (nova is not supported)
         'input_audio_format': 'pcm16',
         'output_audio_format': 'pcm16',
         'input_audio_transcription': {
@@ -131,10 +131,10 @@ Provide positive feedback and encouragement.''',
       }
     });
     
-    // Add auth header in first message (workaround for web)
+    // Clear input audio buffer to start fresh
     _sendEvent({
       'type': 'input_audio_buffer.clear',
-      'auth': apiKey,  // Send API key
+      // 'auth' parameter removed - not supported by API
     });
   }
   

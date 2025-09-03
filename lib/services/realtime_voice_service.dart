@@ -86,7 +86,7 @@ class RealtimeVoiceService {
         Keep responses concise (2-3 sentences max).
         Correct major errors gently by rephrasing.
         Encourage the learner with positive feedback.''',
-        'voice': 'nova',
+        'voice': 'alloy',  // Changed from 'nova' - not supported
         'input_audio_format': 'pcm16',
         'output_audio_format': 'pcm16',
         'input_audio_transcription': {

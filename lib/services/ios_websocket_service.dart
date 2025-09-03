@@ -89,7 +89,7 @@ Be conversational, friendly, and encouraging.
 Keep responses concise (2-3 sentences max).
 Correct major errors gently by rephrasing.
 Provide positive feedback and encouragement.''',
-        'voice': 'nova',
+        'voice': 'alloy',  // Changed from 'nova' - not supported
         'input_audio_format': 'pcm16',
         'output_audio_format': 'pcm16',
         'input_audio_transcription': {

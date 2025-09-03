@@ -278,7 +278,7 @@ class HTTPConversationService {
         body: jsonEncode({
           'model': 'tts-1-hd',
           'input': text,
-          'voice': 'nova',
+          'voice': 'alloy',  // Changed from 'nova' - not supported
           'response_format': 'mp3',
         }),
       ).timeout(const Duration(seconds: 30));
