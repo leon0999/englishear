@@ -1,15 +1,14 @@
-import 'dart:async';
 import 'dart:typed_data';
-import 'dart:convert';
-import 'package:record/record.dart';
+import 'dart:async';
+import 'dart:io';
 import 'package:flutter_sound/flutter_sound.dart';
-import 'dart:io' show Platform;
+import 'package:record/record.dart';
+import 'package:audio_session/audio_session.dart';
+import 'package:path_provider/path_provider.dart';
 import 'openai_realtime_websocket.dart';
 import '../core/logger.dart';
-import '../utils/audio_utils.dart';
 
-/// Enhanced Audio Streaming Service for Realtime API with PCM Direct Playback
-/// No WAV conversion - Direct PCM streaming for natural voice
+/// Enhanced Audio Streaming Service for Realtime API with Direct PCM Streaming
 class EnhancedAudioStreamingService {
   final AudioRecorder _recorder = AudioRecorder();
   FlutterSoundPlayer? _soundPlayer;
@@ -17,17 +16,12 @@ class EnhancedAudioStreamingService {
   
   StreamSubscription? _audioStreamSubscription;
   StreamSubscription? _audioDataSubscription;
-  StreamController<Uint8List>? _audioStreamController;
   
   bool _isRecording = false;
   bool _isPlaying = false;
-  bool _isSpeaking = false;  // Track if user is speaking
-  bool _aiIsResponding = false;  // Track if AI is responding
-  bool _playerInitialized = false;
-  
-  // Audio buffer for PCM data
-  final List<Uint8List> _audioQueue = [];
-  Timer? _playbackTimer;
+  bool _isSpeaking = false;
+  bool _aiIsResponding = false;
+  bool _isInitialized = false;
   
   // Conversation history for Upgrade Replay
   final List<ConversationSegment> conversationHistory = [];
@@ -45,8 +39,13 @@ class EnhancedAudioStreamingService {
   
   /// Initialize service with PCM streaming support
   Future<void> initialize() async {
+    AppLogger.info('🎵 Initializing audio service...');
+    
     try {
-      AppLogger.info('🎵 Initializing PCM audio streaming...');
+      // 먼저 오디오 세션 설정
+      final session = await AudioSession.instance;
+      await session.configure(AudioSessionConfiguration.speech());
+      await session.setActive(true);
       
       // Request microphone permission
       if (!await _recorder.hasPermission()) {
@@ -54,26 +53,57 @@ class EnhancedAudioStreamingService {
         return;
       }
       
-      // Initialize flutter_sound player
+      // FlutterSound 플레이어 초기화
       _soundPlayer = FlutterSoundPlayer();
-      _audioStreamController = StreamController<Uint8List>.broadcast();
-      
-      // Open the player
       await _soundPlayer!.openPlayer();
-      _playerInitialized = true;
       
-      // Configure audio session for iOS
-      if (Platform.isIOS) {
-        await _soundPlayer!.setVolume(1.0);
-      }
+      // StreamController 제거 - 직접 foodSink 사용으로 변경
       
-      AppLogger.info('✅ PCM streaming ready');
+      // 플레이어 시작
+      await _soundPlayer!.startPlayerFromStream(
+        codec: Codec.pcm16,
+        numChannels: 1,
+        sampleRate: 24000,
+        bufferSize: 8192,
+        interleaved: false,
+      );
+      
+      await _soundPlayer!.setVolume(1.0);
+      _isInitialized = true;
+      
+      AppLogger.info('✅ Audio streaming ready');
       
       // Auto-start continuous listening after initialization
       await Future.delayed(const Duration(seconds: 1));
       await startContinuousListening();
+      
     } catch (e) {
-      AppLogger.error('Failed to initialize audio service', e);
+      AppLogger.error('❌ Audio init error', e);
+      // 에러 발생 시 재시도
+      await _retryInitialize();
+    }
+  }
+  
+  Future<void> _retryInitialize() async {
+    try {
+      await Future.delayed(const Duration(milliseconds: 500));
+      
+      _soundPlayer = FlutterSoundPlayer();
+      await _soundPlayer!.openPlayer();
+      
+      // 다른 방식으로 시도 - 모든 필수 매개변수 포함
+      await _soundPlayer!.startPlayerFromStream(
+        codec: Codec.pcm16,
+        numChannels: 1,
+        sampleRate: 24000,
+        bufferSize: 16384,       // 버퍼 크기 증가
+        interleaved: false,      // 필수
+      );
+      
+      _isInitialized = true;
+      AppLogger.info('✅ Audio streaming ready (retry)');
+    } catch (e) {
+      AppLogger.error('❌ Retry failed', e);
     }
   }
   
@@ -83,9 +113,30 @@ class EnhancedAudioStreamingService {
     _audioDataSubscription = _websocket.audioDataStream.listen((audioData) {
       // Only play AI audio if user is not speaking
       if (!_isSpeaking && audioData.isNotEmpty) {
-        _handleIncomingAudio(audioData);
+        addAudioData(audioData);
       }
     });
+  }
+  
+  /// Add audio data to play
+  void addAudioData(Uint8List pcmData) {
+    if (!_isInitialized || pcmData.isEmpty) return;
+    
+    AppLogger.info('🔊 Playing Jupiter voice: ${pcmData.length} bytes');
+    
+    try {
+      // Alternative 접근법 - 직접 파일 재생 방식
+      _playPCMDirectly(pcmData);
+    } catch (e) {
+      AppLogger.error('❌ Error playing audio', e);
+    }
+    
+    // Save AI audio for conversation history
+    conversationHistory.add(ConversationSegment(
+      role: 'assistant',
+      audioData: pcmData,
+      timestamp: DateTime.now(),
+    ));
   }
   
   /// Start continuous listening mode (auto-start)
@@ -108,8 +159,7 @@ class EnhancedAudioStreamingService {
       }
       
       // Stop any AI audio playback when user starts speaking
-      await stopAudioOutput();
-      _audioQueue.clear();
+      stopListening();
       _aiIsResponding = false;
       
       // Check microphone permission
@@ -187,6 +237,7 @@ class EnhancedAudioStreamingService {
       // Commit audio and request response from Realtime API
       _websocket.commitAudioAndRespond();
       _aiIsResponding = true;
+      resumeListening();
       _updateConversationState();
       
       AppLogger.info('Audio streaming stopped, AI response requested');
@@ -196,100 +247,99 @@ class EnhancedAudioStreamingService {
     }
   }
   
-  /// Handle incoming PCM audio from Realtime API
-  void _handleIncomingAudio(Uint8List audioData) async {
-    // Ignore if user is speaking
-    if (_isSpeaking) {
-      AppLogger.info('Ignoring AI audio - user is speaking');
-      return;
-    }
-    
-    if (audioData.isEmpty) return;
-    
-    AppLogger.info('🔊 Received PCM audio: ${audioData.length} bytes');
-    
-    // Add to queue for streaming
-    _audioQueue.add(audioData);
-    
-    // Save AI audio for conversation history
-    conversationHistory.add(ConversationSegment(
-      role: 'assistant',
-      audioData: audioData,
-      timestamp: DateTime.now(),
-    ));
-    
-    // Start PCM streaming if not already playing
-    if (!_isPlaying) {
-      _startPCMStreaming();
-    }
-  }
-  
-  /// Start PCM audio streaming directly without WAV conversion
-  void _startPCMStreaming() async {
-    if (_isPlaying || _isSpeaking || !_playerInitialized) return;
-    
-    _isPlaying = true;
-    AppLogger.info('🎵 Starting PCM audio streaming');
-    
-    // Process audio queue with WAV conversion for compatibility
-    _playbackTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
-      if (_audioQueue.isEmpty) {
-        // No more audio to play
-        _stopPCMStreaming();
-        return;
-      }
-      
-      // Stop if user starts speaking
-      if (_isSpeaking) {
-        _stopPCMStreaming();
-        return;
-      }
-      
-      // Play next chunk
-      if (_audioQueue.isNotEmpty && !_soundPlayer!.isPlaying) {
-        final pcmChunk = _audioQueue.removeAt(0);
-        
-        try {
-          // Convert PCM to WAV for compatibility
-          final wavData = AudioUtils.pcmToWav(pcmChunk, sampleRate: 24000);
-          
-          // Play WAV data
-          await _soundPlayer!.startPlayer(
-            fromDataBuffer: wavData,
-            codec: Codec.pcm16WAV,
-            whenFinished: () {
-              AppLogger.debug('Finished playing chunk');
-            },
-          );
-          
-          AppLogger.debug('Playing audio chunk: ${pcmChunk.length} bytes');
-        } catch (e) {
-          AppLogger.error('Failed to play audio chunk', e);
-        }
-      }
-    });
-  }
-  
-  /// Stop PCM streaming
-  Future<void> _stopPCMStreaming() async {
-    _playbackTimer?.cancel();
-    _playbackTimer = null;
-    
-    if (_soundPlayer != null && _soundPlayer!.isPlaying) {
-      await _soundPlayer!.stopPlayer();
-    }
-    
+  /// Stop listening (pause AI audio)
+  void stopListening() {
+    // 마이크 일시정지 - AI 오디오 재생 중단
     _isPlaying = false;
-    _aiIsResponding = false;
-    _audioQueue.clear();
-    _updateConversationState();
-    
-    AppLogger.info('PCM streaming stopped');
   }
   
-  /// Stop audio output immediately
-  Future<void> stopAudioOutput() async {
-    await _stopPCMStreaming();
+  /// Resume listening (resume AI audio)
+  void resumeListening() {
+    // 마이크 재개 - AI 오디오 재생 재개
+    _isPlaying = true;
+  }
+  
+  /// Play PCM data directly using file-based approach
+  Future<void> _playPCMDirectly(Uint8List pcmData) async {
+    try {
+      // 임시 파일로 저장 후 재생
+      final tempDir = await getTemporaryDirectory();
+      final tempFile = File('${tempDir.path}/jupiter_${DateTime.now().millisecondsSinceEpoch}.wav');
+      
+      // PCM을 WAV로 변환
+      final wavData = _pcmToWav(pcmData);
+      await tempFile.writeAsBytes(wavData);
+      
+      AppLogger.info('🎵 Created temp WAV file: ${tempFile.path}');
+      
+      // 새 플레이어 인스턴스로 재생
+      final player = FlutterSoundPlayer();
+      await player.openPlayer();
+      
+      // 재생 시작
+      await player.startPlayer(fromURI: tempFile.path);
+      AppLogger.info('✅ Jupiter voice playback started');
+      
+      // 재생 완료 후 정리 - 3초 후 자동 정리
+      Timer(const Duration(seconds: 3), () async {
+        try {
+          await player.stopPlayer();
+          await player.closePlayer();
+          if (tempFile.existsSync()) {
+            tempFile.deleteSync();
+            AppLogger.info('🗑️ Temp file cleaned up');
+          }
+        } catch (e) {
+          AppLogger.error('Error cleaning up player', e);
+        }
+      });
+      
+    } catch (e) {
+      AppLogger.error('❌ Failed to play PCM directly', e);
+    }
+  }
+
+  /// Convert PCM to WAV format for direct playback
+  Uint8List _pcmToWav(Uint8List pcmData) {
+    const sampleRate = 24000;  // Realtime API specification
+    const channels = 1;         // Mono
+    const bitsPerSample = 16;   // 16-bit PCM
+    
+    final dataSize = pcmData.length;
+    final fileSize = dataSize + 36;  // File size minus RIFF header
+    
+    final header = ByteData(44);
+    
+    // RIFF chunk
+    header.setUint32(0, 0x46464952, Endian.big);    // "RIFF"
+    header.setUint32(4, fileSize, Endian.little);
+    header.setUint32(8, 0x45564157, Endian.big);    // "WAVE"
+    
+    // fmt chunk
+    header.setUint32(12, 0x20746d66, Endian.big);   // "fmt "
+    header.setUint32(16, 16, Endian.little);        // fmt chunk size
+    header.setUint16(20, 1, Endian.little);         // PCM format
+    header.setUint16(22, channels, Endian.little);
+    header.setUint32(24, sampleRate, Endian.little);
+    header.setUint32(28, sampleRate * channels * bitsPerSample ~/ 8, Endian.little);
+    header.setUint16(32, channels * bitsPerSample ~/ 8, Endian.little);
+    header.setUint16(34, bitsPerSample, Endian.little);
+    
+    // data chunk
+    header.setUint32(36, 0x61746164, Endian.big);   // "data"
+    header.setUint32(40, dataSize, Endian.little);
+    
+    // Combine header and PCM data
+    return Uint8List.fromList([
+      ...header.buffer.asUint8List(),
+      ...pcmData,
+    ]);
+  }
+
+  /// Clear audio queue
+  void clearQueue() {
+    // Alternative 방식에서는 개별 플레이어들이므로 특별한 클리어 불필요
+    AppLogger.info('Queue cleared (alternative file-based approach)');
   }
   
   /// Calculate audio level for visualization
@@ -350,18 +400,16 @@ class EnhancedAudioStreamingService {
   /// Dispose resources
   Future<void> dispose() async {
     await stopStreaming();
-    await stopAudioOutput();
     
     await _audioStreamSubscription?.cancel();
     await _audioDataSubscription?.cancel();
     
     await _recorder.dispose();
     
-    if (_soundPlayer != null) {
-      await _soundPlayer!.closePlayer();
-    }
+    // StreamController 제거됨 - 더 이상 정리할 필요 없음
+    await _soundPlayer?.stopPlayer();
+    await _soundPlayer?.closePlayer();
     
-    await _audioStreamController?.close();
     await _audioLevelController.close();
     await _conversationStateController.close();
   }
