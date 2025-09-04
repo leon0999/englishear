@@ -13,8 +13,8 @@ import '../core/logger.dart';
 /// Handles PCM16 audio at 24kHz sample rate
 class RealtimeAudioService {
   // Audio players for output
-  final AudioPlayer _audioPlayer = AudioPlayer();
-  final List<AudioPlayer> _playerPool = [];
+  final _MockAudioPlayer _audioPlayer = _MockAudioPlayer();
+  final List<_MockAudioPlayer> _playerPool = [];
   int _currentPlayerIndex = 0;
   
   // Audio recorder for input
@@ -44,7 +44,7 @@ class RealtimeAudioService {
   void _initializePlayerPool() {
     // Create 3 players for rotating playback
     for (int i = 0; i < 3; i++) {
-      _playerPool.add(AudioPlayer());
+      _playerPool.add(_MockAudioPlayer());
     }
   }
   
@@ -302,4 +302,13 @@ class RealtimeAudioService {
     // Dispose recorder
     await _recorder.dispose();
   }
+}
+// 임시 모의 클래스 (나중에 flutter_sound로 교체)
+class _MockAudioPlayer {
+  void dispose() {}
+  Future<void> play() async {}
+  Future<void> stop() async {}
+  Future<void> setVolume(double volume) async {}
+  Stream<dynamic> get playerStateStream => Stream.value(null);
+  bool get isPlaying => false;
 }

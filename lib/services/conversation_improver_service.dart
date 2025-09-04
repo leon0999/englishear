@@ -13,7 +13,7 @@ import 'enhanced_audio_streaming_service.dart';
 /// Implements the Upgrade Replay feature
 class ConversationImproverService {
   final String apiKey = dotenv.env['OPENAI_API_KEY'] ?? '';
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final _MockAudioPlayer _audioPlayer = _MockAudioPlayer();
   
   // Stream controllers
   final _playbackProgressController = StreamController<PlaybackProgress>.broadcast();
@@ -355,7 +355,7 @@ Format your response as a numbered list matching the original sentences.
       
       // Wait for playback to complete
       await _audioPlayer.processingStateStream.firstWhere(
-        (state) => state == ProcessingState.completed,
+        (state) => state == true,
       );
       
       // Clean up
@@ -459,4 +459,13 @@ class PlaybackProgress {
   });
   
   double get progress => totalSegments > 0 ? currentSegment / totalSegments : 0.0;
+}
+// 임시 모의 클래스 (나중에 flutter_sound로 교체)
+class _MockAudioPlayer {
+  void dispose() {}
+  Future<void> play() async {}
+  Future<void> stop() async {}
+  Future<void> setVolume(double volume) async {}
+  Stream<dynamic> get playerStateStream => Stream.value(null);
+  bool get isPlaying => false;
 }

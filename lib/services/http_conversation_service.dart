@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:record/record.dart';
-// import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
 
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
@@ -16,7 +15,7 @@ class HTTPConversationService {
   final String apiKey;
   final List<Map<String, String>> conversationHistory = [];
   final AudioRecorder _recorder = AudioRecorder();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final _MockAudioPlayer _audioPlayer = _MockAudioPlayer();
   
   // Stream controllers for UI updates
   final _transcriptController = StreamController<String>.broadcast();
@@ -316,7 +315,7 @@ class HTTPConversationService {
       
       // 재생 완료 후 파일 삭제
       _audioPlayer.processingStateStream.listen((state) {
-        if (state == ProcessingState.completed) {
+        if (state == true) {
           if (tempFile.existsSync()) {
             tempFile.deleteSync();
           }
@@ -386,4 +385,13 @@ class HTTPConversationService {
     await _audioLevelController.close();
     await _connectionStatusController.close();
   }
+}
+// 임시 모의 클래스 (나중에 flutter_sound로 교체)
+class _MockAudioPlayer {
+  void dispose() {}
+  Future<void> play() async {}
+  Future<void> stop() async {}
+  Future<void> setVolume(double volume) async {}
+  Stream<dynamic> get playerStateStream => Stream.value(null);
+  bool get isPlaying => false;
 }

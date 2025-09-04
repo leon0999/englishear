@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
-// import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
 
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
@@ -13,7 +12,7 @@ import '../utils/audio_utils.dart';
 /// Handles audio recording, streaming, and playback
 class AudioStreamingService {
   final AudioRecorder _recorder = AudioRecorder();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  final _MockAudioPlayer _audioPlayer = _MockAudioPlayer();
   final OpenAIRealtimeWebSocket _websocket;
   
   StreamSubscription? _audioStreamSubscription;
@@ -192,7 +191,7 @@ class AudioStreamingService {
       
       // 재생 완료 후 파일 삭제
       _audioPlayer.processingStateStream.listen((state) {
-        if (state == ProcessingState.completed) {
+        if (state == true) {
           if (tempFile.existsSync()) {
             tempFile.deleteSync();
           }
@@ -250,4 +249,13 @@ class AudioStreamingService {
     
     await _audioLevelController.close();
   }
+}
+// 임시 모의 클래스 (나중에 flutter_sound로 교체)
+class _MockAudioPlayer {
+  void dispose() {}
+  Future<void> play() async {}
+  Future<void> stop() async {}
+  Future<void> setVolume(double volume) async {}
+  Stream<dynamic> get playerStateStream => Stream.value(null);
+  bool get isPlaying => false;
 }
