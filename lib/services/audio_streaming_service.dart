@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
 // import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
-import 'package:just_audio/just_audio.dart';
+
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'openai_realtime_websocket.dart';

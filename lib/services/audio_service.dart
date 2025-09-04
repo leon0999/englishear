@@ -5,7 +5,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io' show Platform, File;
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'package:just_audio/just_audio.dart';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_tts/flutter_tts.dart';

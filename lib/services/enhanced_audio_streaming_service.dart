@@ -6,6 +6,7 @@ import 'package:flutter_sound/flutter_sound.dart';
 import 'dart:io' show Platform;
 import 'openai_realtime_websocket.dart';
 import '../core/logger.dart';
+import '../utils/audio_utils.dart';
 
 /// Enhanced Audio Streaming Service for Realtime API with PCM Direct Playback
 /// No WAV conversion - Direct PCM streaming for natural voice
@@ -63,15 +64,7 @@ class EnhancedAudioStreamingService {
       
       // Configure audio session for iOS
       if (Platform.isIOS) {
-        await _soundPlayer!.setCategory(
-          category: SessionCategory.playAndRecord,
-          mode: SessionMode.voiceChat,
-          options: [
-            SessionOptions.defaultToSpeaker,
-            SessionOptions.allowBluetooth,
-            SessionOptions.allowAirPlay,
-          ],
-        );
+        await _soundPlayer!.setVolume(1.0);
       }
       
       AppLogger.info('✅ PCM streaming ready');
@@ -238,47 +231,47 @@ class EnhancedAudioStreamingService {
     _isPlaying = true;
     AppLogger.info('🎵 Starting PCM audio streaming');
     
-    try {
-      // Start PCM player stream (24kHz, 16bit, mono)
-      await _soundPlayer!.startPlayerFromStream(
-        codec: Codec.pcm16,
-        numChannels: 1,
-        sampleRate: 24000,
-      );
+    // Process audio queue with WAV conversion for compatibility
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
+      if (_audioQueue.isEmpty) {
+        // No more audio to play
+        _stopPCMStreaming();
+        return;
+      }
       
-      // Process audio queue
-      _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) async {
-        if (_audioQueue.isEmpty) {
-          // No more audio to play
-          _stopPCMStreaming();
-          return;
-        }
+      // Stop if user starts speaking
+      if (_isSpeaking) {
+        _stopPCMStreaming();
+        return;
+      }
+      
+      // Play next chunk
+      if (_audioQueue.isNotEmpty && !_soundPlayer!.isPlaying) {
+        final pcmChunk = _audioQueue.removeAt(0);
         
-        // Stop if user starts speaking
-        if (_isSpeaking) {
-          _stopPCMStreaming();
-          return;
-        }
-        
-        // Feed PCM data directly to player
-        while (_audioQueue.isNotEmpty && _soundPlayer!.isPlaying) {
-          final pcmChunk = _audioQueue.removeAt(0);
+        try {
+          // Convert PCM to WAV for compatibility
+          final wavData = AudioUtils.pcmToWav(pcmChunk, sampleRate: 24000);
           
-          // Stream PCM data directly - no conversion needed!
-          final foodData = FoodData(pcmChunk);
-          await _soundPlayer!.foodSink!.add(foodData);
+          // Play WAV data
+          await _soundPlayer!.startPlayer(
+            fromDataBuffer: wavData,
+            codec: Codec.pcm16WAV,
+            whenFinished: () {
+              AppLogger.debug('Finished playing chunk');
+            },
+          );
           
-          AppLogger.debug('Streaming PCM chunk: ${pcmChunk.length} bytes');
+          AppLogger.debug('Playing audio chunk: ${pcmChunk.length} bytes');
+        } catch (e) {
+          AppLogger.error('Failed to play audio chunk', e);
         }
-      });
-    } catch (e) {
-      AppLogger.error('Failed to start PCM streaming', e);
-      _stopPCMStreaming();
-    }
+      }
+    });
   }
   
   /// Stop PCM streaming
-  void _stopPCMStreaming() async {
+  Future<void> _stopPCMStreaming() async {
     _playbackTimer?.cancel();
     _playbackTimer = null;
     

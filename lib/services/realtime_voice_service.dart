@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:record/record.dart';
 // import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
-import 'package:just_audio/just_audio.dart';
+
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../core/logger.dart';
 

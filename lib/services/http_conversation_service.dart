@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:record/record.dart';
 // import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
-import 'package:just_audio/just_audio.dart';
+
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import '../core/logger.dart';

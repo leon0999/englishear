@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
 // import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
-import 'package:just_audio/just_audio.dart';
+
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../core/logger.dart';
