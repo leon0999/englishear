@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'dart:convert';
 import 'package:record/record.dart';
 import 'package:just_audio/just_audio.dart';
-import 'dart:io';
+import 'dart:io' show File, Platform;
 import 'package:path_provider/path_provider.dart';
 import 'openai_realtime_websocket.dart';
 import '../core/logger.dart';
@@ -44,6 +44,23 @@ class EnhancedAudioStreamingService {
     _setupListeners();
   }
   
+  /// Initialize service and auto-start microphone
+  Future<void> initialize() async {
+    try {
+      // Request microphone permission
+      if (!await _recorder.hasPermission()) {
+        AppLogger.warning('Microphone permission not granted');
+        return;
+      }
+      
+      // Auto-start continuous listening after permission granted
+      await Future.delayed(const Duration(seconds: 1)); // Brief delay for UI
+      await startContinuousListening();
+    } catch (e) {
+      AppLogger.error('Failed to initialize audio service', e);
+    }
+  }
+  
   /// Setup all event listeners
   void _setupListeners() {
     // Listen for audio data from AI
@@ -62,6 +79,17 @@ class EnhancedAudioStreamingService {
   void _listenToWebSocketEvents() {
     // This method would need access to raw WebSocket events
     // For now, we'll handle it through the existing streams
+  }
+  
+  /// Start continuous listening mode (auto-start)
+  Future<void> startContinuousListening() async {
+    if (_isRecording) {
+      AppLogger.info('Already in continuous listening mode');
+      return;
+    }
+    
+    AppLogger.info('Starting continuous listening mode');
+    await startStreaming();
   }
   
   /// Start streaming audio to Realtime API
@@ -235,7 +263,7 @@ class EnhancedAudioStreamingService {
         return;
       }
       
-      // Convert PCM to WAV
+      // Convert PCM to WAV (essential for iOS)
       final wavData = AudioUtils.pcmToWav(
         chunk,
         sampleRate: 24000,
@@ -243,23 +271,34 @@ class EnhancedAudioStreamingService {
         bitsPerSample: 16,
       );
       
-      // Save to temporary file
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav');
-      await tempFile.writeAsBytes(wavData);
-      
-      // Play with just_audio
-      await _audioPlayer.setFilePath(tempFile.path);
-      await _audioPlayer.play();
-      
-      // Clean up after playback
-      _audioPlayer.processingStateStream.listen((state) {
-        if (state == ProcessingState.completed) {
-          if (tempFile.existsSync()) {
-            tempFile.deleteSync();
+      // For iOS: Use memory-based audio source
+      if (Platform.isIOS) {
+        // Create data URI for in-memory playback
+        final base64Audio = base64Encode(wavData);
+        final dataUri = Uri.parse('data:audio/wav;base64,$base64Audio');
+        
+        await _audioPlayer.setAudioSource(
+          AudioSource.uri(dataUri),
+        );
+        await _audioPlayer.play();
+      } else {
+        // For other platforms: Use temporary file
+        final tempDir = await getTemporaryDirectory();
+        final tempFile = File('${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav');
+        await tempFile.writeAsBytes(wavData);
+        
+        await _audioPlayer.setFilePath(tempFile.path);
+        await _audioPlayer.play();
+        
+        // Clean up after playback
+        _audioPlayer.processingStateStream.listen((state) {
+          if (state == ProcessingState.completed) {
+            if (tempFile.existsSync()) {
+              tempFile.deleteSync();
+            }
           }
-        }
-      });
+        });
+      }
     } catch (e) {
       AppLogger.error('Failed to play audio chunk', e);
     }

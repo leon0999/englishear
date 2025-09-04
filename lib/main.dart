@@ -12,6 +12,7 @@ import 'screens/chatgpt_level_screen.dart';
 import 'screens/chatgpt_level_screen_v2.dart';
 import 'screens/realtime_only_screen.dart';
 import 'screens/simplified_conversation_screen.dart';
+import 'screens/auto_conversation_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -97,7 +98,7 @@ class EnglishEarApp extends StatelessWidget {
             systemOverlayStyle: SystemUiOverlayStyle.light,
           ),
         ),
-        home: const SimplifiedConversationScreen(),  // Simplified UI with Upgrade Replay
+        home: const AutoConversationScreen(),  // Auto-start conversation without buttons
       ),
     );
   }
