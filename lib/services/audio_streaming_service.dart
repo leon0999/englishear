@@ -1,3 +1,4 @@
+import "../utils/mock_audio_player.dart";
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:record/record.dart';
@@ -12,7 +13,7 @@ import '../utils/audio_utils.dart';
 /// Handles audio recording, streaming, and playback
 class AudioStreamingService {
   final AudioRecorder _recorder = AudioRecorder();
-  final _MockAudioPlayer _audioPlayer = _MockAudioPlayer();
+  final MockAudioPlayer _audioPlayer = MockAudioPlayer();
   final OpenAIRealtimeWebSocket _websocket;
   
   StreamSubscription? _audioStreamSubscription;
@@ -251,11 +252,3 @@ class AudioStreamingService {
   }
 }
 // 임시 모의 클래스 (나중에 flutter_sound로 교체)
-class _MockAudioPlayer {
-  void dispose() {}
-  Future<void> play() async {}
-  Future<void> stop() async {}
-  Future<void> setVolume(double volume) async {}
-  Stream<dynamic> get playerStateStream => Stream.value(null);
-  bool get isPlaying => false;
-}

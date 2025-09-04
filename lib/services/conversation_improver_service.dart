@@ -1,3 +1,4 @@
+import "../utils/mock_audio_player.dart";
 import 'dart:async';
 import 'dart:typed_data';
 import 'dart:convert';
@@ -13,7 +14,7 @@ import 'enhanced_audio_streaming_service.dart';
 /// Implements the Upgrade Replay feature
 class ConversationImproverService {
   final String apiKey = dotenv.env['OPENAI_API_KEY'] ?? '';
-  final _MockAudioPlayer _audioPlayer = _MockAudioPlayer();
+  final MockAudioPlayer _audioPlayer = MockAudioPlayer();
   
   // Stream controllers
   final _playbackProgressController = StreamController<PlaybackProgress>.broadcast();
@@ -461,11 +462,3 @@ class PlaybackProgress {
   double get progress => totalSegments > 0 ? currentSegment / totalSegments : 0.0;
 }
 // 임시 모의 클래스 (나중에 flutter_sound로 교체)
-class _MockAudioPlayer {
-  void dispose() {}
-  Future<void> play() async {}
-  Future<void> stop() async {}
-  Future<void> setVolume(double volume) async {}
-  Stream<dynamic> get playerStateStream => Stream.value(null);
-  bool get isPlaying => false;
-}
