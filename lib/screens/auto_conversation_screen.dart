@@ -443,8 +443,8 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
   }
   
   Widget _buildAudioVisualizer() {
-    final isActive = _conversationState?.isUserSpeaking ?? false || 
-                     _conversationState?.isAiResponding ?? false;
+    final isActive = (_conversationState?.isUserSpeaking == true) || 
+                     (_conversationState?.isAiResponding == true);
     
     return AnimatedBuilder(
       animation: isActive ? _pulseAnimation : _breathingAnimation,

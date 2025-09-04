@@ -28,6 +28,7 @@ class EnhancedAudioStreamingService {
   // Audio buffer and queue management
   final List<int> _audioBuffer = [];
   final List<Uint8List> _audioQueue = [];
+  final List<Uint8List> _wavBuffer = [];  // Buffer for combining small chunks
   Timer? _playbackTimer;
   
   // Conversation history for Upgrade Replay
@@ -223,9 +224,9 @@ class EnhancedAudioStreamingService {
     _isPlaying = true;
     AppLogger.info('Starting AI audio playback');
     
-    // Process audio queue
-    _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) async {
-      if (_audioQueue.isEmpty) {
+    // Process audio queue with buffering
+    _playbackTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
+      if (_audioQueue.isEmpty && _wavBuffer.isEmpty) {
         // No more audio to play
         _stopPlayback();
         return;
@@ -237,9 +238,24 @@ class EnhancedAudioStreamingService {
         return;
       }
       
-      // Get next audio chunk
-      final audioChunk = _audioQueue.removeAt(0);
-      await _playAudioChunk(audioChunk);
+      // Collect multiple chunks for smoother playback
+      while (_audioQueue.isNotEmpty && _wavBuffer.length < 5) {
+        final audioChunk = _audioQueue.removeAt(0);
+        
+        // Convert to WAV and add to buffer
+        final wavData = AudioUtils.pcmToWav(
+          audioChunk,
+          sampleRate: 24000,
+          channels: 1,
+          bitsPerSample: 16,
+        );
+        _wavBuffer.add(wavData);
+      }
+      
+      // Play combined chunks
+      if (_wavBuffer.isNotEmpty) {
+        await _playBufferedAudio();
+      }
     });
   }
   
@@ -250,59 +266,91 @@ class EnhancedAudioStreamingService {
     _isPlaying = false;
     _aiIsResponding = false;
     _audioQueue.clear();
+    _wavBuffer.clear();
     _updateConversationState();
     AppLogger.info('AI audio playback stopped');
   }
   
-  /// Play a single audio chunk
-  Future<void> _playAudioChunk(Uint8List chunk) async {
+  /// Play buffered audio chunks
+  Future<void> _playBufferedAudio() async {
+    if (_wavBuffer.isEmpty || _isSpeaking) return;
+    
     try {
-      // Stop if user is speaking
-      if (_isSpeaking) {
-        await _audioPlayer.stop();
-        return;
-      }
+      // Combine WAV chunks for smoother playback
+      final combinedWav = _combineWavChunks(_wavBuffer);
+      _wavBuffer.clear();
       
-      // Convert PCM to WAV (essential for iOS)
-      final wavData = AudioUtils.pcmToWav(
-        chunk,
-        sampleRate: 24000,
-        channels: 1,
-        bitsPerSample: 16,
-      );
-      
-      // For iOS: Use memory-based audio source
       if (Platform.isIOS) {
-        // Create data URI for in-memory playback
-        final base64Audio = base64Encode(wavData);
+        // iOS: Use data URI for memory playback
+        final base64Audio = base64Encode(combinedWav);
         final dataUri = Uri.parse('data:audio/wav;base64,$base64Audio');
         
         await _audioPlayer.setAudioSource(
           AudioSource.uri(dataUri),
         );
         await _audioPlayer.play();
+        
+        // Wait for playback to complete
+        await _audioPlayer.playerStateStream.firstWhere(
+          (state) => state.processingState == ProcessingState.completed,
+        );
       } else {
-        // For other platforms: Use temporary file
+        // Other platforms: Use temporary file
         final tempDir = await getTemporaryDirectory();
         final tempFile = File('${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav');
-        await tempFile.writeAsBytes(wavData);
+        await tempFile.writeAsBytes(combinedWav);
         
         await _audioPlayer.setFilePath(tempFile.path);
         await _audioPlayer.play();
         
-        // Clean up after playback
-        _audioPlayer.processingStateStream.listen((state) {
-          if (state == ProcessingState.completed) {
-            if (tempFile.existsSync()) {
-              tempFile.deleteSync();
-            }
-          }
-        });
+        // Wait and clean up
+        await _audioPlayer.playerStateStream.firstWhere(
+          (state) => state.processingState == ProcessingState.completed,
+        );
+        
+        if (tempFile.existsSync()) {
+          tempFile.deleteSync();
+        }
       }
     } catch (e) {
-      AppLogger.error('Failed to play audio chunk', e);
+      AppLogger.error('Failed to play buffered audio', e);
     }
   }
+  
+  /// Combine multiple WAV chunks into one
+  Uint8List _combineWavChunks(List<Uint8List> chunks) {
+    if (chunks.isEmpty) return Uint8List(0);
+    if (chunks.length == 1) return chunks[0];
+    
+    // Extract PCM data from each WAV chunk (skip 44-byte header)
+    final pcmChunks = <Uint8List>[];
+    int totalPcmLength = 0;
+    
+    for (final chunk in chunks) {
+      if (chunk.length > 44) {
+        final pcmData = chunk.sublist(44);
+        pcmChunks.add(pcmData);
+        totalPcmLength += pcmData.length;
+      }
+    }
+    
+    // Combine PCM data
+    final combinedPcm = Uint8List(totalPcmLength);
+    int offset = 0;
+    for (final pcm in pcmChunks) {
+      combinedPcm.setRange(offset, offset + pcm.length, pcm);
+      offset += pcm.length;
+    }
+    
+    // Create new WAV with combined PCM
+    return AudioUtils.pcmToWav(
+      combinedPcm,
+      sampleRate: 24000,
+      channels: 1,
+      bitsPerSample: 16,
+    );
+  }
+  
   
   /// Calculate audio level for visualization
   void _calculateAudioLevel(Uint8List chunk) {
