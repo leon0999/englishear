@@ -2,33 +2,30 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'dart:convert';
 import 'package:record/record.dart';
-import 'package:just_audio/just_audio.dart';
-import 'dart:io' show File, Platform;
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter_sound/flutter_sound.dart';
+import 'dart:io' show Platform;
 import 'openai_realtime_websocket.dart';
 import '../core/logger.dart';
-import '../utils/audio_utils.dart';
 
-/// Enhanced Audio Streaming Service for Realtime API
-/// Fixes AI echo issue and implements Upgrade Replay
+/// Enhanced Audio Streaming Service for Realtime API with PCM Direct Playback
+/// No WAV conversion - Direct PCM streaming for natural voice
 class EnhancedAudioStreamingService {
   final AudioRecorder _recorder = AudioRecorder();
-  final AudioPlayer _audioPlayer = AudioPlayer();
+  FlutterSoundPlayer? _soundPlayer;
   final OpenAIRealtimeWebSocket _websocket;
   
   StreamSubscription? _audioStreamSubscription;
   StreamSubscription? _audioDataSubscription;
-  StreamSubscription? _eventSubscription;
+  StreamController<Uint8List>? _audioStreamController;
   
   bool _isRecording = false;
   bool _isPlaying = false;
   bool _isSpeaking = false;  // Track if user is speaking
   bool _aiIsResponding = false;  // Track if AI is responding
+  bool _playerInitialized = false;
   
-  // Audio buffer and queue management
-  final List<int> _audioBuffer = [];
+  // Audio buffer for PCM data
   final List<Uint8List> _audioQueue = [];
-  final List<Uint8List> _wavBuffer = [];  // Buffer for combining small chunks
   Timer? _playbackTimer;
   
   // Conversation history for Upgrade Replay
@@ -45,17 +42,42 @@ class EnhancedAudioStreamingService {
     _setupListeners();
   }
   
-  /// Initialize service and auto-start microphone
+  /// Initialize service with PCM streaming support
   Future<void> initialize() async {
     try {
+      AppLogger.info('🎵 Initializing PCM audio streaming...');
+      
       // Request microphone permission
       if (!await _recorder.hasPermission()) {
         AppLogger.warning('Microphone permission not granted');
         return;
       }
       
-      // Auto-start continuous listening after permission granted
-      await Future.delayed(const Duration(seconds: 1)); // Brief delay for UI
+      // Initialize flutter_sound player
+      _soundPlayer = FlutterSoundPlayer();
+      _audioStreamController = StreamController<Uint8List>.broadcast();
+      
+      // Open the player
+      await _soundPlayer!.openPlayer();
+      _playerInitialized = true;
+      
+      // Configure audio session for iOS
+      if (Platform.isIOS) {
+        await _soundPlayer!.setCategory(
+          category: SessionCategory.playAndRecord,
+          mode: SessionMode.voiceChat,
+          options: [
+            SessionOptions.defaultToSpeaker,
+            SessionOptions.allowBluetooth,
+            SessionOptions.allowAirPlay,
+          ],
+        );
+      }
+      
+      AppLogger.info('✅ PCM streaming ready');
+      
+      // Auto-start continuous listening after initialization
+      await Future.delayed(const Duration(seconds: 1));
       await startContinuousListening();
     } catch (e) {
       AppLogger.error('Failed to initialize audio service', e);
@@ -67,19 +89,10 @@ class EnhancedAudioStreamingService {
     // Listen for audio data from AI
     _audioDataSubscription = _websocket.audioDataStream.listen((audioData) {
       // Only play AI audio if user is not speaking
-      if (!_isSpeaking) {
+      if (!_isSpeaking && audioData.isNotEmpty) {
         _handleIncomingAudio(audioData);
       }
     });
-    
-    // Listen for WebSocket events
-    _listenToWebSocketEvents();
-  }
-  
-  /// Listen to specific WebSocket events
-  void _listenToWebSocketEvents() {
-    // This method would need access to raw WebSocket events
-    // For now, we'll handle it through the existing streams
   }
   
   /// Start continuous listening mode (auto-start)
@@ -102,9 +115,8 @@ class EnhancedAudioStreamingService {
       }
       
       // Stop any AI audio playback when user starts speaking
-      await _audioPlayer.stop();
+      await stopAudioOutput();
       _audioQueue.clear();
-      _audioBuffer.clear();
       _aiIsResponding = false;
       
       // Check microphone permission
@@ -191,8 +203,8 @@ class EnhancedAudioStreamingService {
     }
   }
   
-  /// Handle incoming audio from Realtime API
-  void _handleIncomingAudio(Uint8List audioData) {
+  /// Handle incoming PCM audio from Realtime API
+  void _handleIncomingAudio(Uint8List audioData) async {
     // Ignore if user is speaking
     if (_isSpeaking) {
       AppLogger.info('Ignoring AI audio - user is speaking');
@@ -201,7 +213,9 @@ class EnhancedAudioStreamingService {
     
     if (audioData.isEmpty) return;
     
-    // Add to queue for smooth playback
+    AppLogger.info('🔊 Received PCM audio: ${audioData.length} bytes');
+    
+    // Add to queue for streaming
     _audioQueue.add(audioData);
     
     // Save AI audio for conversation history
@@ -211,146 +225,79 @@ class EnhancedAudioStreamingService {
       timestamp: DateTime.now(),
     ));
     
-    // Start playback if not already playing
+    // Start PCM streaming if not already playing
     if (!_isPlaying) {
-      _startPlayback();
+      _startPCMStreaming();
     }
   }
   
-  /// Start audio playback with queue management
-  void _startPlayback() {
-    if (_isPlaying || _isSpeaking) return;
+  /// Start PCM audio streaming directly without WAV conversion
+  void _startPCMStreaming() async {
+    if (_isPlaying || _isSpeaking || !_playerInitialized) return;
     
     _isPlaying = true;
-    AppLogger.info('Starting AI audio playback');
+    AppLogger.info('🎵 Starting PCM audio streaming');
     
-    // Process audio queue with buffering
-    _playbackTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
-      if (_audioQueue.isEmpty && _wavBuffer.isEmpty) {
-        // No more audio to play
-        _stopPlayback();
-        return;
-      }
+    try {
+      // Start PCM player stream (24kHz, 16bit, mono)
+      await _soundPlayer!.startPlayerFromStream(
+        codec: Codec.pcm16,
+        numChannels: 1,
+        sampleRate: 24000,
+      );
       
-      // Stop if user starts speaking
-      if (_isSpeaking) {
-        _stopPlayback();
-        return;
-      }
-      
-      // Collect multiple chunks for smoother playback
-      while (_audioQueue.isNotEmpty && _wavBuffer.length < 5) {
-        final audioChunk = _audioQueue.removeAt(0);
+      // Process audio queue
+      _playbackTimer = Timer.periodic(const Duration(milliseconds: 50), (timer) async {
+        if (_audioQueue.isEmpty) {
+          // No more audio to play
+          _stopPCMStreaming();
+          return;
+        }
         
-        // Convert to WAV and add to buffer
-        final wavData = AudioUtils.pcmToWav(
-          audioChunk,
-          sampleRate: 24000,
-          channels: 1,
-          bitsPerSample: 16,
-        );
-        _wavBuffer.add(wavData);
-      }
-      
-      // Play combined chunks
-      if (_wavBuffer.isNotEmpty) {
-        await _playBufferedAudio();
-      }
-    });
+        // Stop if user starts speaking
+        if (_isSpeaking) {
+          _stopPCMStreaming();
+          return;
+        }
+        
+        // Feed PCM data directly to player
+        while (_audioQueue.isNotEmpty && _soundPlayer!.isPlaying) {
+          final pcmChunk = _audioQueue.removeAt(0);
+          
+          // Stream PCM data directly - no conversion needed!
+          final foodData = FoodData(pcmChunk);
+          await _soundPlayer!.foodSink!.add(foodData);
+          
+          AppLogger.debug('Streaming PCM chunk: ${pcmChunk.length} bytes');
+        }
+      });
+    } catch (e) {
+      AppLogger.error('Failed to start PCM streaming', e);
+      _stopPCMStreaming();
+    }
   }
   
-  /// Stop audio playback
-  void _stopPlayback() {
+  /// Stop PCM streaming
+  void _stopPCMStreaming() async {
     _playbackTimer?.cancel();
     _playbackTimer = null;
+    
+    if (_soundPlayer != null && _soundPlayer!.isPlaying) {
+      await _soundPlayer!.stopPlayer();
+    }
+    
     _isPlaying = false;
     _aiIsResponding = false;
     _audioQueue.clear();
-    _wavBuffer.clear();
     _updateConversationState();
-    AppLogger.info('AI audio playback stopped');
+    
+    AppLogger.info('PCM streaming stopped');
   }
   
-  /// Play buffered audio chunks
-  Future<void> _playBufferedAudio() async {
-    if (_wavBuffer.isEmpty || _isSpeaking) return;
-    
-    try {
-      // Combine WAV chunks for smoother playback
-      final combinedWav = _combineWavChunks(_wavBuffer);
-      _wavBuffer.clear();
-      
-      if (Platform.isIOS) {
-        // iOS: Use data URI for memory playback
-        final base64Audio = base64Encode(combinedWav);
-        final dataUri = Uri.parse('data:audio/wav;base64,$base64Audio');
-        
-        await _audioPlayer.setAudioSource(
-          AudioSource.uri(dataUri),
-        );
-        await _audioPlayer.play();
-        
-        // Wait for playback to complete
-        await _audioPlayer.playerStateStream.firstWhere(
-          (state) => state.processingState == ProcessingState.completed,
-        );
-      } else {
-        // Other platforms: Use temporary file
-        final tempDir = await getTemporaryDirectory();
-        final tempFile = File('${tempDir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.wav');
-        await tempFile.writeAsBytes(combinedWav);
-        
-        await _audioPlayer.setFilePath(tempFile.path);
-        await _audioPlayer.play();
-        
-        // Wait and clean up
-        await _audioPlayer.playerStateStream.firstWhere(
-          (state) => state.processingState == ProcessingState.completed,
-        );
-        
-        if (tempFile.existsSync()) {
-          tempFile.deleteSync();
-        }
-      }
-    } catch (e) {
-      AppLogger.error('Failed to play buffered audio', e);
-    }
+  /// Stop audio output immediately
+  Future<void> stopAudioOutput() async {
+    await _stopPCMStreaming();
   }
-  
-  /// Combine multiple WAV chunks into one
-  Uint8List _combineWavChunks(List<Uint8List> chunks) {
-    if (chunks.isEmpty) return Uint8List(0);
-    if (chunks.length == 1) return chunks[0];
-    
-    // Extract PCM data from each WAV chunk (skip 44-byte header)
-    final pcmChunks = <Uint8List>[];
-    int totalPcmLength = 0;
-    
-    for (final chunk in chunks) {
-      if (chunk.length > 44) {
-        final pcmData = chunk.sublist(44);
-        pcmChunks.add(pcmData);
-        totalPcmLength += pcmData.length;
-      }
-    }
-    
-    // Combine PCM data
-    final combinedPcm = Uint8List(totalPcmLength);
-    int offset = 0;
-    for (final pcm in pcmChunks) {
-      combinedPcm.setRange(offset, offset + pcm.length, pcm);
-      offset += pcm.length;
-    }
-    
-    // Create new WAV with combined PCM
-    return AudioUtils.pcmToWav(
-      combinedPcm,
-      sampleRate: 24000,
-      channels: 1,
-      bitsPerSample: 16,
-    );
-  }
-  
   
   /// Calculate audio level for visualization
   void _calculateAudioLevel(Uint8List chunk) {
@@ -410,15 +357,18 @@ class EnhancedAudioStreamingService {
   /// Dispose resources
   Future<void> dispose() async {
     await stopStreaming();
-    _stopPlayback();
+    await stopAudioOutput();
     
     await _audioStreamSubscription?.cancel();
     await _audioDataSubscription?.cancel();
-    await _eventSubscription?.cancel();
     
     await _recorder.dispose();
-    await _audioPlayer.dispose();
     
+    if (_soundPlayer != null) {
+      await _soundPlayer!.closePlayer();
+    }
+    
+    await _audioStreamController?.close();
     await _audioLevelController.close();
     await _conversationStateController.close();
   }

@@ -1,11 +1,10 @@
 # This is a generated file; do not edit or check into version control.
-audio_session=/Users/user/.pub-cache/hosted/pub.dev/audio_session-0.1.21/
+flutter_sound=/Users/user/.pub-cache/hosted/pub.dev/flutter_sound-9.28.0/
+flutter_sound_web=/Users/user/.pub-cache/hosted/pub.dev/flutter_sound_web-9.28.0/
 flutter_tts=/Users/user/.pub-cache/hosted/pub.dev/flutter_tts-3.8.5/
 in_app_purchase=/Users/user/.pub-cache/hosted/pub.dev/in_app_purchase-3.2.0/
 in_app_purchase_android=/Users/user/.pub-cache/hosted/pub.dev/in_app_purchase_android-0.3.6/
 in_app_purchase_storekit=/Users/user/.pub-cache/hosted/pub.dev/in_app_purchase_storekit-0.3.20+2/
-just_audio=/Users/user/.pub-cache/hosted/pub.dev/just_audio-0.9.42/
-just_audio_web=/Users/user/.pub-cache/hosted/pub.dev/just_audio_web-0.4.13/
 path_provider=/Users/user/.pub-cache/hosted/pub.dev/path_provider-2.1.4/
 path_provider_android=/Users/user/.pub-cache/hosted/pub.dev/path_provider_android-2.2.4/
 path_provider_foundation=/Users/user/.pub-cache/hosted/pub.dev/path_provider_foundation-2.4.1/

@@ -71,7 +71,8 @@ dependencies:
   intl: ^0.18.1
   
   # 오디오
-  just_audio: ^0.9.36
+  flutter_sound: ^9.2.13  # PCM streaming support
+  # just_audio: ^0.9.36  # Removed - using flutter_sound for PCM streaming
   
   # UI
   lottie: ^3.1.0
