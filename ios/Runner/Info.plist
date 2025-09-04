@@ -46,8 +46,12 @@
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>This app needs microphone access for English speaking practice</string>
+	<string>영어 회화 연습을 위해 마이크 접근이 필요합니다</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>This app needs speech recognition for analyzing your pronunciation</string>
+	<string>발음 분석을 위해 음성 인식 권한이 필요합니다</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 </dict>
 </plist>

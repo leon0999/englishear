@@ -18,7 +18,7 @@ class AutoConversationScreen extends StatefulWidget {
 }
 
 class _AutoConversationScreenState extends State<AutoConversationScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   
   // Core Services
   late final OpenAIRealtimeWebSocket _websocket;
@@ -50,13 +50,52 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);  // Add lifecycle observer
     _initializeServices();
     _setupAnimations();
     
-    // Auto-start after frame is rendered
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _requestPermissionAndStart();
-    });
+    // Check permission status first
+    _checkPermissionAndInitialize();
+  }
+  
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    
+    // Handle app resume from settings
+    if (state == AppLifecycleState.resumed) {
+      AppLogger.info('App resumed, checking permissions...');
+      _checkPermissionAndInitialize();
+    } else if (state == AppLifecycleState.paused) {
+      AppLogger.info('App paused');
+      // Stop audio when app is paused
+      if (_audioService != null) {
+        _audioService.stopStreaming();
+      }
+    }
+  }
+  
+  Future<void> _checkPermissionAndInitialize() async {
+    // Check current permission status
+    final status = await Permission.microphone.status;
+    
+    AppLogger.info('Microphone permission status: $status');
+    
+    if (status.isGranted) {
+      // Permission already granted, initialize directly
+      if (!_isConnected && !_isInitializing) {
+        await _initializeAndStart();
+      }
+    } else if (status.isDenied) {
+      // First time or denied, request permission
+      await _requestPermissionAndStart();
+    } else if (status.isPermanentlyDenied) {
+      // Permission permanently denied
+      setState(() {
+        _permissionGranted = false;
+        _isInitializing = false;
+      });
+    }
   }
   
   void _initializeServices() {
@@ -147,36 +186,63 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       // Request microphone permission
       final status = await Permission.microphone.request();
       
+      AppLogger.info('Permission request result: $status');
+      
       if (status.isGranted) {
+        await _initializeAndStart();
+      } else if (status.isPermanentlyDenied) {
         setState(() {
-          _permissionGranted = true;
-        });
-        
-        // Connect to WebSocket
-        await _websocket.connect();
-        
-        // Initialize and auto-start audio service
-        await _audioService.initialize();
-        
-        setState(() {
+          _permissionGranted = false;
           _isInitializing = false;
         });
-        
-        AppLogger.info('Auto-started conversation mode');
+        _showError('Please enable microphone permission in Settings');
       } else {
         setState(() {
           _permissionGranted = false;
           _isInitializing = false;
         });
-        
-        _showError('Microphone permission is required for conversation');
+        _showError('Microphone permission is required');
       }
     } catch (e) {
-      AppLogger.error('Failed to initialize', e);
+      AppLogger.error('Failed to request permission', e);
       setState(() {
         _isInitializing = false;
       });
-      _showError('Failed to start conversation: ${e.toString()}');
+      
+      // Try to initialize anyway if permission might already be granted
+      final status = await Permission.microphone.status;
+      if (status.isGranted) {
+        await _initializeAndStart();
+      }
+    }
+  }
+  
+  Future<void> _initializeAndStart() async {
+    try {
+      setState(() {
+        _isInitializing = true;
+        _permissionGranted = true;
+      });
+      
+      // Connect to WebSocket if not connected
+      if (!_isConnected) {
+        await _websocket.connect();
+      }
+      
+      // Initialize and auto-start audio service
+      await _audioService.initialize();
+      
+      setState(() {
+        _isInitializing = false;
+      });
+      
+      AppLogger.info('Successfully initialized conversation mode');
+    } catch (e) {
+      AppLogger.error('Failed to initialize services', e);
+      setState(() {
+        _isInitializing = false;
+      });
+      _showError('Failed to start: ${e.toString()}');
     }
   }
   
@@ -577,6 +643,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
   
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);  // Remove lifecycle observer
     _waveformTimer?.cancel();
     _pulseController.dispose();
     _breathingController.dispose();
