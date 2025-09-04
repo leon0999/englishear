@@ -104,17 +104,19 @@ class OpenAIRealtimeWebSocket {
   
   /// Setup session with authentication
   Future<void> _setupSession() async {
-    // Send session update with auth token
+    // Send session update with natural conversation settings
     _sendEvent({
       'type': 'session.update',
       'session': {
-        'modalities': ['text', 'audio'],
-        'instructions': '''You are an English conversation tutor having a natural conversation with a learner.
-Be conversational, friendly, and encouraging.
-Keep responses concise (2-3 sentences max).
-Correct major errors gently by rephrasing.
-Provide positive feedback and encouragement.''',
-        'voice': 'alloy',  // Natural female voice (nova is not supported)
+        'modalities': ['audio'],  // Audio only - no text display
+        'instructions': '''You are a friendly native English speaker having a casual conversation.
+Speak naturally like a real person would in everyday conversation.
+Use casual language, fillers like "um", "well", "you know" occasionally.
+Vary your speaking pace and intonation naturally.
+Keep responses concise and conversational (1-2 sentences).
+Don't sound robotic or overly formal.
+React naturally to what the user says with appropriate emotions.''',
+        'voice': 'alloy',  // Most natural sounding voice
         'input_audio_format': 'pcm16',
         'output_audio_format': 'pcm16',
         'input_audio_transcription': {
@@ -122,12 +124,12 @@ Provide positive feedback and encouragement.''',
         },
         'turn_detection': {
           'type': 'server_vad',
-          'threshold': 0.5,
+          'threshold': 0.7,  // Higher threshold for better detection
           'prefix_padding_ms': 300,
-          'silence_duration_ms': 500,
+          'silence_duration_ms': 1000,  // Natural pause duration
         },
-        'temperature': 0.8,
-        'max_response_output_tokens': 150,
+        'temperature': 0.9,  // More variety in responses
+        'max_response_output_tokens': 100,  // Shorter, more natural responses
       }
     });
     
@@ -193,15 +195,14 @@ Provide positive feedback and encouragement.''',
           
         case 'conversation.item.created':
           final item = event['item'];
+          // Ignore user items to prevent echo
+          if (item['role'] == 'user') {
+            AppLogger.info('Ignoring user conversation item to prevent echo');
+            return;
+          }
           if (item['role'] == 'assistant' && item['type'] == 'message') {
-            // AI response started
-            final content = item['content'];
-            if (content != null && content.isNotEmpty) {
-              final textContent = content[0];
-              if (textContent['type'] == 'text') {
-                _responseController.add(textContent['text'] ?? '');
-              }
-            }
+            // AI response started - audio only, no text
+            AppLogger.info('AI response started (audio only)');
           }
           break;
           
@@ -215,27 +216,29 @@ Provide positive feedback and encouragement.''',
           break;
           
         case 'response.audio_transcript.delta':
-          // Transcript chunk received
-          final textDelta = event['delta'];
-          if (textDelta != null) {
-            _responseController.add(textDelta);
-          }
+          // Ignore transcript to prevent text display
+          AppLogger.debug('Ignoring audio transcript delta');
           break;
           
         case 'response.audio_transcript.done':
-          // Complete transcript received
-          final transcript = event['transcript'];
-          if (transcript != null) {
-            _responseController.add(transcript);
-          }
+          // Ignore transcript to prevent text display
+          AppLogger.debug('Ignoring audio transcript done');
           break;
           
         case 'conversation.item.input_audio_transcription.completed':
-          // User's speech transcribed
-          final transcript = event['transcript'];
-          if (transcript != null) {
-            _transcriptController.add(transcript);
-          }
+          // Ignore user transcript to prevent text display
+          AppLogger.debug('User speech detected but transcript ignored');
+          break;
+          
+        case 'input_audio_buffer.speech_started':
+          // User started speaking - important for interruption handling
+          AppLogger.info('User started speaking');
+          _handleUserSpeechStarted();
+          break;
+          
+        case 'input_audio_buffer.speech_stopped':
+          // User stopped speaking
+          AppLogger.info('User stopped speaking');
           break;
           
         case 'response.done':
@@ -250,6 +253,13 @@ Provide positive feedback and encouragement.''',
     } catch (e) {
       AppLogger.error('Failed to handle server event', e);
     }
+  }
+  
+  /// Handle user speech started event
+  void _handleUserSpeechStarted() {
+    // Signal to audio service to stop AI playback
+    // This prevents AI echo when user interrupts
+    _audioDataController.add(Uint8List(0));  // Send empty data as stop signal
   }
   
   /// Handle authentication error
