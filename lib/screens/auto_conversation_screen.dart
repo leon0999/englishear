@@ -64,14 +64,34 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     
     // Handle app resume from settings
     if (state == AppLifecycleState.resumed) {
-      AppLogger.info('App resumed, checking permissions...');
-      _checkPermissionAndInitialize();
+      AppLogger.info('📱 App resumed, checking permissions...');
+      _checkPermissionAfterSettings();
     } else if (state == AppLifecycleState.paused) {
-      AppLogger.info('App paused');
+      AppLogger.info('⏸️ App paused');
       // Stop audio when app is paused
-      if (_audioService != null) {
-        _audioService.stopStreaming();
-      }
+      _audioService.stopStreaming().catchError((e) {
+        AppLogger.error('Failed to stop streaming on pause', e);
+      });
+    }
+  }
+  
+  Future<void> _checkPermissionAfterSettings() async {
+    // Wait a bit for the system to update permission status
+    await Future.delayed(const Duration(milliseconds: 500));
+    
+    final status = await Permission.microphone.status;
+    AppLogger.info('🎤 Permission status after settings: $status');
+    
+    if (status.isGranted && !_isConnected) {
+      setState(() {
+        _permissionGranted = true;
+      });
+      await _initializeAndStart();
+    } else if (status.isPermanentlyDenied) {
+      setState(() {
+        _permissionGranted = false;
+        _isInitializing = false;
+      });
     }
   }
   
@@ -186,7 +206,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       // Request microphone permission
       final status = await Permission.microphone.request();
       
-      AppLogger.info('Permission request result: $status');
+      AppLogger.info('✅ Permission request result: $status');
       
       if (status.isGranted) {
         await _initializeAndStart();
@@ -195,16 +215,16 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
           _permissionGranted = false;
           _isInitializing = false;
         });
-        _showError('Please enable microphone permission in Settings');
+        _showPermissionDeniedDialog();
       } else {
         setState(() {
           _permissionGranted = false;
           _isInitializing = false;
         });
-        _showError('Microphone permission is required');
+        _showError('Microphone permission is required for conversation');
       }
     } catch (e) {
-      AppLogger.error('Failed to request permission', e);
+      AppLogger.error('❌ Failed to request permission', e);
       setState(() {
         _isInitializing = false;
       });
@@ -215,6 +235,44 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
         await _initializeAndStart();
       }
     }
+  }
+  
+  void _showPermissionDeniedDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1A1A1A),
+        title: const Text(
+          'Microphone Permission Required',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'EnglishEar needs microphone access to practice English conversation. '
+          'Please enable microphone permission in Settings.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Colors.grey),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              await openAppSettings();
+            },
+            child: const Text(
+              'Open Settings',
+              style: TextStyle(color: Colors.blue),
+            ),
+          ),
+        ],
+      ),
+    );
   }
   
   Future<void> _initializeAndStart() async {
