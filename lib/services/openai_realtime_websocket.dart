@@ -20,6 +20,11 @@ class OpenAIRealtimeWebSocket {
   final _audioDataController = StreamController<Uint8List>.broadcast();
   final _errorController = StreamController<String>.broadcast();
   
+  // Jupiter AI state and callbacks
+  String _currentAiTranscript = '';
+  Function(String)? onAiTranscriptUpdate;
+  Function(String)? onSpeakingStateChange;
+  
   // Public streams
   Stream<bool> get connectionStatusStream => _connectionStatusController.stream;
   Stream<String> get transcriptStream => _transcriptController.stream;
@@ -108,14 +113,18 @@ class OpenAIRealtimeWebSocket {
     _sendEvent({
       'type': 'session.update',
       'session': {
-        'modalities': ['audio'],  // Audio only - no text display
-        'instructions': '''You are a friendly native English speaker having a casual conversation.
-Speak naturally like a real person would in everyday conversation.
-Use casual language, fillers like "um", "well", "you know" occasionally.
-Vary your speaking pace and intonation naturally.
-Keep responses concise and conversational (1-2 sentences).
-Don't sound robotic or overly formal.
-React naturally to what the user says with appropriate emotions.''',
+        'modalities': ['text', 'audio'],  // Both text and audio for Jupiter AI
+        'instructions': '''You are Jupiter, a friendly and engaging AI English conversation partner.
+Your role is to help users practice English through natural conversation.
+
+IMPORTANT RULES:
+1. Keep responses concise (1-2 sentences) for natural conversation flow
+2. Ask follow-up questions to keep the conversation going
+3. Gently correct grammar mistakes by using the correct form naturally
+4. Be encouraging and supportive
+5. Speak at a moderate pace for language learners
+6. Use common, everyday vocabulary
+7. Use casual fillers like "um", "well" occasionally for naturalness''',
         'voice': 'alloy',  // Most natural sounding voice
         'input_audio_format': 'pcm16',
         'output_audio_format': 'pcm16',
@@ -124,14 +133,16 @@ React naturally to what the user says with appropriate emotions.''',
         },
         'turn_detection': {
           'type': 'server_vad',
-          'threshold': 0.7,  // Higher threshold for better detection
+          'threshold': 0.5,  // Balanced threshold for learners
           'prefix_padding_ms': 300,
-          'silence_duration_ms': 1000,  // Natural pause duration
+          'silence_duration_ms': 700,  // Natural pause for learners
         },
-        'temperature': 0.9,  // More variety in responses
-        'max_response_output_tokens': 100,  // Shorter, more natural responses
+        'temperature': 0.8,  // Good variety in responses
+        'max_response_output_tokens': 150,  // Concise but complete responses
       }
     });
+    
+    AppLogger.info('ℹ️ Session update sent with text+audio modalities for Jupiter AI');
     
     // Clear input audio buffer to start fresh
     _sendEvent({
@@ -200,29 +211,36 @@ React naturally to what the user says with appropriate emotions.''',
             AppLogger.info('Ignoring user conversation item to prevent echo');
             return;
           }
-          if (item['role'] == 'assistant' && item['type'] == 'message') {
-            // AI response started - audio only, no text
-            AppLogger.info('AI response started (audio only)');
+          if (item['role'] == 'assistant') {
+            // Jupiter AI response started
+            AppLogger.info('🤖 Jupiter is responding...');
+            _updateSpeakingState('ai');
           }
           break;
           
         case 'response.audio.delta':
-          // Audio chunk received
+          // Audio chunk received from Jupiter
           final audioDelta = event['delta'];
           if (audioDelta != null) {
             final audioBytes = base64Decode(audioDelta);
             _audioDataController.add(audioBytes);
+            AppLogger.debug('🔊 Playing audio: ${audioBytes.length} bytes');
           }
           break;
           
         case 'response.audio_transcript.delta':
-          // Ignore transcript to prevent text display
-          AppLogger.debug('Ignoring audio transcript delta');
+          // Jupiter's response text delta
+          final transcript = event['delta'] ?? '';
+          _currentAiTranscript += transcript;
+          _updateAiTranscript(_currentAiTranscript);
           break;
           
         case 'response.audio_transcript.done':
-          // Ignore transcript to prevent text display
-          AppLogger.debug('Ignoring audio transcript done');
+          // Complete Jupiter transcript
+          final fullTranscript = event['transcript'] ?? '';
+          AppLogger.info('🤖 [Jupiter]: $fullTranscript');
+          _updateAiTranscript(fullTranscript);
+          _currentAiTranscript = '';
           break;
           
         case 'conversation.item.input_audio_transcription.completed':
@@ -232,17 +250,20 @@ React naturally to what the user says with appropriate emotions.''',
           
         case 'input_audio_buffer.speech_started':
           // User started speaking - important for interruption handling
-          AppLogger.info('User started speaking');
+          AppLogger.info('🎙️ User started speaking');
           _handleUserSpeechStarted();
+          _updateSpeakingState('user');
           break;
           
         case 'input_audio_buffer.speech_stopped':
           // User stopped speaking
-          AppLogger.info('User stopped speaking');
+          AppLogger.info('🤐 User stopped speaking');
+          _updateSpeakingState('idle');
           break;
           
         case 'response.done':
-          AppLogger.info('Response completed');
+          AppLogger.info('✅ Response completed');
+          _updateSpeakingState('idle');
           break;
           
         case 'rate_limits.updated':
@@ -260,6 +281,17 @@ React naturally to what the user says with appropriate emotions.''',
     // Signal to audio service to stop AI playback
     // This prevents AI echo when user interrupts
     _audioDataController.add(Uint8List(0));  // Send empty data as stop signal
+  }
+  
+  /// Update AI transcript for UI display
+  void _updateAiTranscript(String transcript) {
+    onAiTranscriptUpdate?.call(transcript);
+  }
+  
+  /// Update speaking state for UI
+  void _updateSpeakingState(String state) {
+    // 'user', 'ai', 'idle' states
+    onSpeakingStateChange?.call(state);
   }
   
   /// Handle authentication error
@@ -330,7 +362,7 @@ React naturally to what the user says with appropriate emotions.''',
         'role': 'user',
         'content': [
           {
-            'type': 'text',
+            'type': 'input_text',
             'text': text,
           }
         ],
@@ -341,6 +373,17 @@ React naturally to what the user says with appropriate emotions.''',
     _sendEvent({
       'type': 'response.create',
     });
+  }
+  
+  /// Start conversation with Jupiter greeting
+  void startConversationWithGreeting() {
+    if (!_isConnected) {
+      AppLogger.warning('Cannot start conversation: Not connected');
+      return;
+    }
+    
+    // Send a request for Jupiter to start the conversation
+    sendText('Please start the conversation by greeting me in a friendly way.');
   }
   
   /// Test connection

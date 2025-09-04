@@ -39,6 +39,8 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
   ConversationState? _conversationState;
   bool _hasConversationHistory = false;
   bool _isProcessingUpgrade = false;
+  String _jupiterTranscript = '';  // Jupiter AI transcript
+  String _speakingState = 'idle';  // 'user', 'ai', 'idle'
   
   // Stream Subscriptions
   final List<StreamSubscription> _subscriptions = [];
@@ -122,6 +124,23 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     _websocket = OpenAIRealtimeWebSocket();
     _audioService = EnhancedAudioStreamingService(_websocket);
     _improverService = ConversationImproverService();
+    
+    // Set up Jupiter AI callbacks
+    _websocket.onAiTranscriptUpdate = (transcript) {
+      if (mounted) {
+        setState(() {
+          _jupiterTranscript = transcript;
+        });
+      }
+    };
+    
+    _websocket.onSpeakingStateChange = (state) {
+      if (mounted) {
+        setState(() {
+          _speakingState = state;
+        });
+      }
+    };
     
     // Listen to connection status
     _subscriptions.add(
@@ -289,6 +308,10 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       
       // Initialize and auto-start audio service
       await _audioService.initialize();
+      
+      // Start with Jupiter greeting
+      await Future.delayed(const Duration(seconds: 1));
+      _websocket.startConversationWithGreeting();
       
       setState(() {
         _isInitializing = false;
@@ -513,10 +536,19 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
         // Connection indicator
         _buildConnectionIndicator(),
         
+        // Jupiter name and status
+        _buildJupiterHeader(),
+        
         // Main visualization
         Expanded(
-          child: Center(
-            child: _buildAudioVisualizer(),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              _buildAudioVisualizer(),
+              // Jupiter transcript overlay
+              if (_jupiterTranscript.isNotEmpty && _speakingState == 'ai')
+                _buildJupiterTranscript(),
+            ],
           ),
         ),
         
@@ -612,12 +644,12 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     Color color = Colors.white38;
     IconData icon = Icons.hearing;
     
-    if (_conversationState?.isUserSpeaking ?? false) {
+    if (_speakingState == 'user' || (_conversationState?.isUserSpeaking ?? false)) {
       status = 'Listening...';
       color = Colors.blue;
       icon = Icons.mic;
-    } else if (_conversationState?.isAiResponding ?? false) {
-      status = 'AI Speaking...';
+    } else if (_speakingState == 'ai' || (_conversationState?.isAiResponding ?? false)) {
+      status = 'Jupiter is speaking...';
       color = Colors.purple;
       icon = Icons.volume_up;
     }
@@ -638,6 +670,133 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+  
+  Widget _buildJupiterHeader() {
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 20),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Jupiter icon
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                colors: [
+                  Colors.purple.shade400,
+                  Colors.deepPurple.shade600,
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.purple.withOpacity(0.3),
+                  blurRadius: 8,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.psychology,
+              color: Colors.white,
+              size: 24,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Jupiter AI',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                _speakingState == 'ai' ? 'Speaking...' : 'Your English Partner',
+                style: TextStyle(
+                  color: _speakingState == 'ai' 
+                    ? Colors.purple.shade300 
+                    : Colors.white54,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _buildJupiterTranscript() {
+    return Positioned(
+      bottom: 100,
+      left: 20,
+      right: 20,
+      child: AnimatedOpacity(
+        opacity: _jupiterTranscript.isNotEmpty ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 300),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
+          decoration: BoxDecoration(
+            color: Colors.purple.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(15),
+            border: Border.all(
+              color: Colors.purple.withOpacity(0.3),
+              width: 1,
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.purple.withOpacity(0.1),
+                blurRadius: 10,
+                spreadRadius: 1,
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.psychology,
+                    color: Colors.purple.shade300,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Jupiter',
+                    style: TextStyle(
+                      color: Colors.purple.shade300,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _jupiterTranscript,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 14,
+                  height: 1.4,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
