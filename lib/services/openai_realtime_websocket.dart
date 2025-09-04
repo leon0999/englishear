@@ -45,7 +45,12 @@ class OpenAIRealtimeWebSocket {
   /// Connect to OpenAI Realtime WebSocket
   Future<void> connect() async {
     try {
-      AppLogger.info('Connecting to OpenAI Realtime API...');
+      if (apiKey.isEmpty) {
+        throw Exception('OpenAI API key not found in environment');
+      }
+      
+      AppLogger.info('🔗 Connecting to OpenAI Realtime API...');
+      AppLogger.info('API key present: ${apiKey.substring(0, 10)}...');
       
       // Use platform-specific WebSocket implementation
       if (Platform.isIOS || Platform.isAndroid) {
@@ -55,6 +60,11 @@ class OpenAIRealtimeWebSocket {
           headers: {
             'Authorization': 'Bearer $apiKey',
             'OpenAI-Beta': 'realtime=v1',
+          },
+        ).timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw TimeoutException('Connection timeout');
           },
         );
         
@@ -151,7 +161,10 @@ IMPORTANT RULES:
     });
   }
   
-  /// Send event to WebSocket
+  /// Send event to WebSocket (public method for external use)
+  void sendEvent(Map<String, dynamic> event) => _sendEvent(event);
+  
+  /// Send event to WebSocket (internal)
   void _sendEvent(Map<String, dynamic> event) {
     try {
       final jsonEvent = jsonEncode(event);
@@ -197,7 +210,11 @@ IMPORTANT RULES:
           _sessionId = event['session']['id'];
           _isConnected = true;
           _connectionStatusController.add(true);
-          AppLogger.info('Session created: $_sessionId');
+          AppLogger.info('✅ Session created: $_sessionId');
+          
+          // Clear transcript when new session starts
+          _currentAiTranscript = '';
+          onAiTranscriptUpdate?.call('');
           break;
           
         case 'session.updated':

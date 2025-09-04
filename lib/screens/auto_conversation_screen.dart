@@ -53,11 +53,10 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);  // Add lifecycle observer
-    _initializeServices();
     _setupAnimations();
     
-    // Check permission status first
-    _checkPermissionAndInitialize();
+    // Immediately check and initialize
+    _checkAndInitialize();
   }
   
   @override
@@ -97,88 +96,143 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     }
   }
   
-  Future<void> _checkPermissionAndInitialize() async {
+  Future<void> _checkAndInitialize() async {
+    AppLogger.info('🔄 Checking permissions and initializing...');
+    
     // Check current permission status
     final status = await Permission.microphone.status;
-    
-    AppLogger.info('Microphone permission status: $status');
+    AppLogger.info('🎤 Current permission status: $status');
     
     if (status.isGranted) {
-      // Permission already granted, initialize directly
-      if (!_isConnected && !_isInitializing) {
-        await _initializeAndStart();
-      }
+      // Permission granted, initialize services
+      AppLogger.info('✅ Permission granted, initializing services...');
+      await _initializeServices();
     } else if (status.isDenied) {
-      // First time or denied, request permission
-      await _requestPermissionAndStart();
+      // Request permission
+      final result = await Permission.microphone.request();
+      AppLogger.info('📱 Permission request result: $result');
+      
+      if (result.isGranted) {
+        await _initializeServices();
+      } else {
+        setState(() {
+          _permissionGranted = false;
+          _isInitializing = false;
+        });
+        _showPermissionDeniedDialog();
+      }
     } else if (status.isPermanentlyDenied) {
-      // Permission permanently denied
       setState(() {
         _permissionGranted = false;
         _isInitializing = false;
       });
+      _showPermissionDeniedDialog();
     }
   }
   
-  void _initializeServices() {
-    _websocket = OpenAIRealtimeWebSocket();
-    _audioService = EnhancedAudioStreamingService(_websocket);
-    _improverService = ConversationImproverService();
+  Future<void> _initializeServices() async {
+    AppLogger.info('🚀 Starting service initialization...');
     
-    // Set up Jupiter AI callbacks
-    _websocket.onAiTranscriptUpdate = (transcript) {
-      if (mounted) {
-        setState(() {
-          _jupiterTranscript = transcript;
-        });
-      }
-    };
+    setState(() {
+      _isInitializing = true;
+      _permissionGranted = true;
+    });
     
-    _websocket.onSpeakingStateChange = (state) {
-      if (mounted) {
-        setState(() {
-          _speakingState = state;
-        });
-      }
-    };
-    
-    // Listen to connection status
-    _subscriptions.add(
-      _websocket.connectionStatusStream.listen((isConnected) {
+    try {
+      // Initialize services
+      _websocket = OpenAIRealtimeWebSocket();
+      _audioService = EnhancedAudioStreamingService(_websocket);
+      _improverService = ConversationImproverService();
+      
+      AppLogger.info('✅ Services created');
+      
+      // Set up Jupiter AI callbacks
+      _websocket.onAiTranscriptUpdate = (transcript) {
         if (mounted) {
           setState(() {
-            _isConnected = isConnected;
-            if (!isConnected) {
-              _reconnect();
-            }
+            _jupiterTranscript = transcript;
           });
         }
-      }),
-    );
-    
-    // Listen to audio level changes
-    _subscriptions.add(
-      _audioService.audioLevelStream.listen((level) {
+      };
+      
+      _websocket.onSpeakingStateChange = (state) {
         if (mounted) {
           setState(() {
-            _audioLevel = level;
-            _updateWaveform(level);
+            _speakingState = state;
           });
         }
-      }),
-    );
-    
-    // Listen to conversation state
-    _subscriptions.add(
-      _audioService.conversationStateStream.listen((state) {
+      };
+      
+      // Listen to connection status
+      _subscriptions.add(
+        _websocket.connectionStatusStream.listen((isConnected) {
+          AppLogger.info('🔌 Connection status changed: $isConnected');
+          if (mounted) {
+            setState(() {
+              _isConnected = isConnected;
+              if (isConnected) {
+                // Start Jupiter greeting after connection
+                _startJupiterGreeting();
+              }
+            });
+          }
+        }),
+      );
+      
+      // Listen to audio level changes
+      _subscriptions.add(
+        _audioService.audioLevelStream.listen((level) {
+          if (mounted) {
+            setState(() {
+              _audioLevel = level;
+              _updateWaveform(level);
+            });
+          }
+        }),
+      );
+      
+      // Listen to conversation state
+      _subscriptions.add(
+        _audioService.conversationStateStream.listen((state) {
+          if (mounted) {
+            setState(() {
+              _conversationState = state;
+              _hasConversationHistory = _audioService.getConversationHistory().isNotEmpty;
+            });
+          }
+        }),
+      );
+      
+      // Connect to WebSocket
+      AppLogger.info('🔗 Connecting to OpenAI Realtime API...');
+      await _websocket.connect();
+      
+      // Initialize audio service
+      AppLogger.info('🎤 Initializing audio service...');
+      await _audioService.initialize();
+      
+      setState(() {
+        _isInitializing = false;
+      });
+      
+      AppLogger.info('✅ All services initialized successfully');
+      
+    } catch (e) {
+      AppLogger.error('❌ Error initializing services', e);
+      setState(() {
+        _isInitializing = false;
+      });
+      
+      // Show error and retry
+      _showError('Connection failed: ${e.toString()}');
+      
+      // Retry after 3 seconds
+      Future.delayed(const Duration(seconds: 3), () {
         if (mounted) {
-          setState(() {
-            _conversationState = state;
-            _hasConversationHistory = _audioService.getConversationHistory().isNotEmpty;
-          });
+          _checkAndInitialize();
         }
-      }),
-    );
+      });
+    }
   }
   
   void _setupAnimations() {
@@ -294,37 +348,35 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     );
   }
   
-  Future<void> _initializeAndStart() async {
-    try {
-      setState(() {
-        _isInitializing = true;
-        _permissionGranted = true;
-      });
-      
-      // Connect to WebSocket if not connected
-      if (!_isConnected) {
-        await _websocket.connect();
+  void _startJupiterGreeting() {
+    Future.delayed(const Duration(seconds: 2), () {
+      if (_isConnected) {
+        AppLogger.info('🤖 Jupiter starting conversation...');
+        
+        // Start conversation with greeting
+        _websocket.sendEvent({
+          'type': 'conversation.item.create',
+          'item': {
+            'type': 'message',
+            'role': 'user',
+            'content': [{
+              'type': 'input_text',
+              'text': 'Start the conversation by saying hello and asking how I am doing today.'
+            }]
+          }
+        });
+        
+        // Request response
+        _websocket.sendEvent({
+          'type': 'response.create'
+        });
       }
-      
-      // Initialize and auto-start audio service
-      await _audioService.initialize();
-      
-      // Start with Jupiter greeting
-      await Future.delayed(const Duration(seconds: 1));
-      _websocket.startConversationWithGreeting();
-      
-      setState(() {
-        _isInitializing = false;
-      });
-      
-      AppLogger.info('Successfully initialized conversation mode');
-    } catch (e) {
-      AppLogger.error('Failed to initialize services', e);
-      setState(() {
-        _isInitializing = false;
-      });
-      _showError('Failed to start: ${e.toString()}');
-    }
+    });
+  }
+  
+  Future<void> _initializeAndStart() async {
+    // This method now redirects to the new _initializeServices
+    await _initializeServices();
   }
   
   Future<void> _reconnect() async {
