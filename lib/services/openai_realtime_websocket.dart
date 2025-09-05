@@ -297,6 +297,7 @@ IMPORTANT RULES:
   void _handleUserSpeechStarted() {
     // Signal to audio service to stop AI playback
     // This prevents AI echo when user interrupts
+    AppLogger.info('🎙️ User speech started - sending interrupt signal');
     _audioDataController.add(Uint8List(0));  // Send empty data as stop signal
   }
   

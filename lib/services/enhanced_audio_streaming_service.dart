@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import '../utils/audio_utils.dart';
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter_sound/flutter_sound.dart';
@@ -53,25 +54,14 @@ class EnhancedAudioStreamingService {
         return;
       }
       
-      // FlutterSound 플레이어 초기화
+      // FlutterSound 플레이어 초기화 - WAV 파일 재생용
       _soundPlayer = FlutterSoundPlayer();
       await _soundPlayer!.openPlayer();
-      
-      // StreamController 제거 - 직접 foodSink 사용으로 변경
-      
-      // 플레이어 시작
-      await _soundPlayer!.startPlayerFromStream(
-        codec: Codec.pcm16,
-        numChannels: 1,
-        sampleRate: 24000,
-        bufferSize: 8192,
-        interleaved: false,
-      );
-      
       await _soundPlayer!.setVolume(1.0);
+      
       _isInitialized = true;
       
-      AppLogger.info('✅ Audio streaming ready');
+      AppLogger.info('✅ Audio streaming ready (WAV mode)');
       
       // Auto-start continuous listening after initialization
       await Future.delayed(const Duration(seconds: 1));
@@ -90,18 +80,10 @@ class EnhancedAudioStreamingService {
       
       _soundPlayer = FlutterSoundPlayer();
       await _soundPlayer!.openPlayer();
-      
-      // 다른 방식으로 시도 - 모든 필수 매개변수 포함
-      await _soundPlayer!.startPlayerFromStream(
-        codec: Codec.pcm16,
-        numChannels: 1,
-        sampleRate: 24000,
-        bufferSize: 16384,       // 버퍼 크기 증가
-        interleaved: false,      // 필수
-      );
+      await _soundPlayer!.setVolume(1.0);
       
       _isInitialized = true;
-      AppLogger.info('✅ Audio streaming ready (retry)');
+      AppLogger.info('✅ Audio streaming ready (retry - WAV mode)');
     } catch (e) {
       AppLogger.error('❌ Retry failed', e);
     }
@@ -111,24 +93,40 @@ class EnhancedAudioStreamingService {
   void _setupListeners() {
     // Listen for audio data from AI
     _audioDataSubscription = _websocket.audioDataStream.listen((audioData) {
-      // Only play AI audio if user is not speaking
-      if (!_isSpeaking && audioData.isNotEmpty) {
-        addAudioData(audioData);
+      // 빈 데이터는 인터럽션 신호로 처리
+      if (audioData.isEmpty) {
+        AppLogger.info('🛑 Received interrupt signal - stopping AI audio');
+        _soundPlayer?.stopPlayer();
+        return;
+      }
+      
+      // AI 오디오 재생 조건을 더 유연하게 변경
+      if (audioData.isNotEmpty) {
+        AppLogger.info('📻 Received AI audio: ${audioData.length} bytes, Speaking: $_isSpeaking');
+        
+        // 사용자가 말하고 있어도 짧은 응답은 재생 (자연스러운 대화)
+        if (!_isSpeaking || audioData.length < 4800) { // 200ms 이하는 재생
+          addAudioData(audioData);
+        } else {
+          AppLogger.info('⏸️ Skipping AI audio - user is speaking');
+        }
       }
     });
   }
   
   /// Add audio data to play
-  void addAudioData(Uint8List pcmData) {
+  Future<void> addAudioData(Uint8List pcmData) async {
     if (!_isInitialized || pcmData.isEmpty) return;
     
     AppLogger.info('🔊 Playing Jupiter voice: ${pcmData.length} bytes');
     
     try {
-      // Alternative 접근법 - 직접 파일 재생 방식
-      _playPCMDirectly(pcmData);
+      // WAV 파일 방식으로 재생
+      await _playPCMAsWAV(pcmData);
     } catch (e) {
       AppLogger.error('❌ Error playing audio', e);
+      // 재시도 로직 추가
+      await _retryAudioPlayback(pcmData);
     }
     
     // Save AI audio for conversation history
@@ -259,82 +257,100 @@ class EnhancedAudioStreamingService {
     _isPlaying = true;
   }
   
-  /// Play PCM data directly using file-based approach
-  Future<void> _playPCMDirectly(Uint8List pcmData) async {
+  /// Retry audio playback with fallback
+  Future<void> _retryAudioPlayback(Uint8List pcmData) async {
+    AppLogger.info('🔄 Retrying audio playback...');
+    
     try {
-      // 임시 파일로 저장 후 재생
-      final tempDir = await getTemporaryDirectory();
-      final tempFile = File('${tempDir.path}/jupiter_${DateTime.now().millisecondsSinceEpoch}.wav');
+      // 짧은 지연 후 재시도
+      await Future.delayed(const Duration(milliseconds: 100));
       
-      // PCM을 WAV로 변환
-      final wavData = _pcmToWav(pcmData);
-      await tempFile.writeAsBytes(wavData);
+      // 플레이어 상태 체크 및 재초기화
+      if (_soundPlayer == null || !_isInitialized) {
+        await _retryInitialize();
+      }
       
-      AppLogger.info('🎵 Created temp WAV file: ${tempFile.path}');
-      
-      // 새 플레이어 인스턴스로 재생
-      final player = FlutterSoundPlayer();
-      await player.openPlayer();
-      
-      // 재생 시작
-      await player.startPlayer(fromURI: tempFile.path);
-      AppLogger.info('✅ Jupiter voice playback started');
-      
-      // 재생 완료 후 정리 - 3초 후 자동 정리
-      Timer(const Duration(seconds: 3), () async {
-        try {
-          await player.stopPlayer();
-          await player.closePlayer();
-          if (tempFile.existsSync()) {
-            tempFile.deleteSync();
-            AppLogger.info('🗑️ Temp file cleaned up');
-          }
-        } catch (e) {
-          AppLogger.error('Error cleaning up player', e);
-        }
-      });
-      
+      // 재시도
+      await _playPCMAsWAV(pcmData);
+      AppLogger.info('✅ Audio retry successful');
     } catch (e) {
-      AppLogger.error('❌ Failed to play PCM directly', e);
+      AppLogger.error('❌ Audio retry failed', e);
     }
   }
 
-  /// Convert PCM to WAV format for direct playback
-  Uint8List _pcmToWav(Uint8List pcmData) {
-    const sampleRate = 24000;  // Realtime API specification
-    const channels = 1;         // Mono
-    const bitsPerSample = 16;   // 16-bit PCM
-    
-    final dataSize = pcmData.length;
-    final fileSize = dataSize + 36;  // File size minus RIFF header
-    
-    final header = ByteData(44);
-    
-    // RIFF chunk
-    header.setUint32(0, 0x46464952, Endian.big);    // "RIFF"
-    header.setUint32(4, fileSize, Endian.little);
-    header.setUint32(8, 0x45564157, Endian.big);    // "WAVE"
-    
-    // fmt chunk
-    header.setUint32(12, 0x20746d66, Endian.big);   // "fmt "
-    header.setUint32(16, 16, Endian.little);        // fmt chunk size
-    header.setUint16(20, 1, Endian.little);         // PCM format
-    header.setUint16(22, channels, Endian.little);
-    header.setUint32(24, sampleRate, Endian.little);
-    header.setUint32(28, sampleRate * channels * bitsPerSample ~/ 8, Endian.little);
-    header.setUint16(32, channels * bitsPerSample ~/ 8, Endian.little);
-    header.setUint16(34, bitsPerSample, Endian.little);
-    
-    // data chunk
-    header.setUint32(36, 0x61746164, Endian.big);   // "data"
-    header.setUint32(40, dataSize, Endian.little);
-    
-    // Combine header and PCM data
-    return Uint8List.fromList([
-      ...header.buffer.asUint8List(),
-      ...pcmData,
-    ]);
+  /// Play PCM data as WAV file
+  Future<void> _playPCMAsWAV(Uint8List pcmData) async {
+    try {
+      AppLogger.info('🎵 Starting WAV playback process...');
+      
+      // 플레이어 상태 확인
+      if (_soundPlayer == null) {
+        throw Exception('SoundPlayer is null');
+      }
+      if (!_isInitialized) {
+        throw Exception('Audio service not initialized');
+      }
+      
+      // 임시 파일로 저장 후 재생
+      final tempDir = await getTemporaryDirectory();
+      if (!await tempDir.exists()) {
+        throw Exception('Temp directory does not exist');
+      }
+      
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final tempFile = File('${tempDir.path}/jupiter_$timestamp.wav');
+      
+      AppLogger.info('📁 Creating temp file: ${tempFile.path}');
+      
+      // PCM을 WAV로 변환 (audio_utils 사용)
+      final wavData = AudioUtils.pcmToWav(pcmData);
+      await tempFile.writeAsBytes(wavData);
+      
+      // 파일 생성 확인
+      if (!await tempFile.exists()) {
+        throw Exception('Failed to create WAV file');
+      }
+      
+      AppLogger.info('🎵 WAV file created: ${tempFile.path} (${wavData.length} bytes)');
+      
+      // 이전 재생 중지
+      try {
+        await _soundPlayer!.stopPlayer();
+        AppLogger.info('⏹️ Previous playback stopped');
+      } catch (e) {
+        AppLogger.warning('Could not stop previous playback: $e');
+      }
+      
+      // 새 파일 재생 시작
+      AppLogger.info('▶️ Starting playback...');
+      await _soundPlayer!.startPlayer(
+        fromURI: tempFile.path,
+        whenFinished: () async {
+          AppLogger.info('🏁 Playback finished');
+          // 재생 완료 후 파일 정리
+          try {
+            if (await tempFile.exists()) {
+              await tempFile.delete();
+              AppLogger.info('🗑️ Temp WAV file cleaned up');
+            }
+          } catch (e) {
+            AppLogger.error('Error deleting temp file', e);
+          }
+        },
+      );
+      
+      AppLogger.info('✅ Jupiter voice playback started successfully');
+      
+    } catch (e) {
+      AppLogger.error('❌ Failed to play PCM as WAV: ${e.toString()}', e);
+      
+      // 상세 디버그 정보
+      AppLogger.error('Debug info - PCM size: ${pcmData.length}, Initialized: $_isInitialized, Player: ${_soundPlayer != null}');
+      
+      rethrow; // 재시도 로직에서 처리하도록 예외 재전파
+    }
   }
+
 
   /// Clear audio queue
   void clearQueue() {
