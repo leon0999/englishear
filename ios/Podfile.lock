@@ -89,7 +89,7 @@ EXTERNAL SOURCES:
 
 SPEC CHECKSUMS:
   audio_session: f08db0697111ac84ba46191b55488c0563bb29c6
-  Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
+  Flutter: e0871f40cf51350855a761d2e70bf5af5b9b5de7
   flutter_sound: b9236a5875299aaa4cef1690afd2f01d52a3f890
   flutter_sound_core: 427465f72d07ab8c3edbe8ffdde709ddacd3763c
   flutter_tts: b88dbc8655d3dc961bc4a796e4e16a4cc1795833

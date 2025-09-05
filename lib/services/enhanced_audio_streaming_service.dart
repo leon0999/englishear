@@ -2,7 +2,8 @@ import 'dart:typed_data';
 import '../utils/audio_utils.dart';
 import 'dart:async';
 import 'dart:io';
-import 'package:flutter_sound/flutter_sound.dart';
+import 'dart:collection';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
 import 'package:audio_session/audio_session.dart';
 import 'package:path_provider/path_provider.dart';
@@ -12,7 +13,12 @@ import '../core/logger.dart';
 /// Enhanced Audio Streaming Service for Realtime API with Direct PCM Streaming
 class EnhancedAudioStreamingService {
   final AudioRecorder _recorder = AudioRecorder();
-  FlutterSoundPlayer? _soundPlayer;
+  AudioPlayer? _audioPlayer;
+  
+  // Swift와 같은 오디오 큐 시스템
+  final Queue<Uint8List> _audioQueue = Queue<Uint8List>();
+  bool _isPlayingQueue = false;  // 큐 재생 상태
+  Timer? _playbackTimer;
   final OpenAIRealtimeWebSocket _websocket;
   
   StreamSubscription? _audioStreamSubscription;
@@ -61,10 +67,9 @@ class EnhancedAudioStreamingService {
         return;
       }
       
-      // FlutterSound 플레이어 초기화 - WAV 파일 재생용
-      _soundPlayer = FlutterSoundPlayer();
-      await _soundPlayer!.openPlayer();
-      await _soundPlayer!.setVolume(1.0);
+      // AudioPlayer 초기화 - WAV 파일 재생용
+      await _audioPlayer.setReleaseMode(ReleaseMode.stop);
+      await _audioPlayer.setVolume(1.0);
       
       _isInitialized = true;
       
@@ -85,9 +90,8 @@ class EnhancedAudioStreamingService {
     try {
       await Future.delayed(const Duration(milliseconds: 500));
       
-      _soundPlayer = FlutterSoundPlayer();
-      await _soundPlayer!.openPlayer();
-      await _soundPlayer!.setVolume(1.0);
+      await _audioPlayer.setReleaseMode(ReleaseMode.stop);
+      await _audioPlayer.setVolume(1.0);
       
       _isInitialized = true;
       AppLogger.info('✅ Audio streaming ready (retry - WAV mode)');
@@ -103,7 +107,7 @@ class EnhancedAudioStreamingService {
       // 빈 데이터는 인터럽션 신호로 처리
       if (audioData.isEmpty) {
         AppLogger.info('🛑 Received interrupt signal - stopping AI audio');
-        _soundPlayer?.stopPlayer();
+        _audioPlayer.stop();
         return;
       }
       
@@ -113,28 +117,38 @@ class EnhancedAudioStreamingService {
         
         // AI가 응답 중이고 사용자가 말하고 있지 않으면 재생
         if (!_isSpeaking) {
+          AppLogger.info('🎯 [AUDIO TEST] Calling addAudioData...');
+          // Swift처럼 즉시 큐에 추가 (동기 호출)
           addAudioData(audioData);
         } else {
-          AppLogger.info('⏸️ Skipping AI audio - user is speaking');
+          AppLogger.info('⏸️ [AUDIO TEST] Skipping AI audio - user is speaking');
         }
       }
     });
   }
   
-  /// Add audio data to play
-  Future<void> addAudioData(Uint8List pcmData) async {
-    if (!_isInitialized || pcmData.isEmpty) return;
+  /// Add audio data to play (Swift와 같은 큐 방식)
+  void addAudioData(Uint8List pcmData) {
+    AppLogger.info('🎯 [AUDIO TEST] addAudioData called with ${pcmData.length} bytes');
     
-    AppLogger.info('🔊 Playing Jupiter voice: ${pcmData.length} bytes');
-    
-    try {
-      // WAV 파일 방식으로 재생
-      await _playPCMAsWAV(pcmData);
-    } catch (e) {
-      AppLogger.error('❌ Error playing audio', e);
-      // 재시도 로직 추가
-      await _retryAudioPlayback(pcmData);
+    if (!_isInitialized) {
+      AppLogger.error('❌ [AUDIO TEST] Player not initialized! _isInitialized: $_isInitialized');
+      return;
     }
+    
+    if (pcmData.isEmpty) {
+      AppLogger.error('❌ [AUDIO TEST] Empty PCM data received!');
+      return;
+    }
+    
+    AppLogger.info('🔊 [AUDIO TEST] Adding to queue: ${pcmData.length} bytes');
+    
+    // Swift처럼 큐에 추가
+    _audioQueue.add(pcmData);
+    AppLogger.info('📦 [AUDIO TEST] Queue size: ${_audioQueue.length}');
+    
+    // 재생이 시작되지 않았다면 시작
+    _startPlaybackIfNeeded();
     
     // Save AI audio for conversation history
     conversationHistory.add(ConversationSegment(
@@ -275,7 +289,7 @@ class EnhancedAudioStreamingService {
       await Future.delayed(const Duration(milliseconds: 100));
       
       // 플레이어 상태 체크 및 재초기화
-      if (_soundPlayer == null || !_isInitialized) {
+      if (!_isInitialized) {
         await _retryInitialize();
       }
       
@@ -293,9 +307,6 @@ class EnhancedAudioStreamingService {
       AppLogger.info('🎵 Starting WAV playback process...');
       
       // 플레이어 상태 확인
-      if (_soundPlayer == null) {
-        throw Exception('SoundPlayer is null');
-      }
       if (!_isInitialized) {
         throw Exception('Audio service not initialized');
       }
@@ -324,7 +335,7 @@ class EnhancedAudioStreamingService {
       
       // 이전 재생 중지
       try {
-        await _soundPlayer!.stopPlayer();
+        await _audioPlayer.stop();
         AppLogger.info('⏹️ Previous playback stopped');
       } catch (e) {
         AppLogger.warning('Could not stop previous playback: $e');
@@ -332,21 +343,21 @@ class EnhancedAudioStreamingService {
       
       // 새 파일 재생 시작
       AppLogger.info('▶️ Starting playback...');
-      await _soundPlayer!.startPlayer(
-        fromURI: tempFile.path,
-        whenFinished: () async {
-          AppLogger.info('🏁 Playback finished');
-          // 재생 완료 후 파일 정리
-          try {
-            if (await tempFile.exists()) {
-              await tempFile.delete();
-              AppLogger.info('🗑️ Temp WAV file cleaned up');
-            }
-          } catch (e) {
-            AppLogger.error('Error deleting temp file', e);
+      await _audioPlayer.play(DeviceFileSource(tempFile.path));
+      
+      // 재생 완료 리스너 설정
+      _audioPlayer.onPlayerComplete.listen((_) async {
+        AppLogger.info('🏁 Playback finished');
+        // 재생 완료 후 파일 정리
+        try {
+          if (await tempFile.exists()) {
+            await tempFile.delete();
+            AppLogger.info('🗑️ Temp WAV file cleaned up');
           }
-        },
-      );
+        } catch (e) {
+          AppLogger.error('Error deleting temp file', e);
+        }
+      });
       
       AppLogger.info('✅ Jupiter voice playback started successfully');
       
@@ -354,17 +365,57 @@ class EnhancedAudioStreamingService {
       AppLogger.error('❌ Failed to play PCM as WAV: ${e.toString()}', e);
       
       // 상세 디버그 정보
-      AppLogger.error('Debug info - PCM size: ${pcmData.length}, Initialized: $_isInitialized, Player: ${_soundPlayer != null}');
+      AppLogger.error('Debug info - PCM size: ${pcmData.length}, Initialized: $_isInitialized');
       
       rethrow; // 재시도 로직에서 처리하도록 예외 재전파
     }
   }
 
 
+  /// Start playback if needed (Swift 방식)
+  void _startPlaybackIfNeeded() {
+    if (!_isPlayingQueue && _audioQueue.isNotEmpty) {
+      AppLogger.info('▶️ [AUDIO TEST] Starting playback timer');
+      _isPlayingQueue = true;
+      _processNextAudioChunk();
+    }
+  }
+  
+  /// Process next audio chunk from queue
+  Future<void> _processNextAudioChunk() async {
+    if (_audioQueue.isEmpty) {
+      AppLogger.info('⏹ [AUDIO TEST] Queue empty, stopping playback');
+      _isPlayingQueue = false;
+      return;
+    }
+    
+    final pcmData = _audioQueue.removeFirst();
+    AppLogger.info('🎵 [AUDIO TEST] Processing chunk: ${pcmData.length} bytes, remaining: ${_audioQueue.length}');
+    
+    try {
+      await _playPCMAsWAV(pcmData);
+      
+      // 재생 완료 후 다음 청크 처리
+      if (_audioQueue.isNotEmpty) {
+        // 짧은 지연 후 다음 청크 재생 (버퍼 언더런 방지)
+        await Future.delayed(const Duration(milliseconds: 50));
+        _processNextAudioChunk();
+      } else {
+        _isPlayingQueue = false;
+        AppLogger.info('✅ [AUDIO TEST] All audio chunks played');
+      }
+    } catch (e) {
+      AppLogger.error('❌ [AUDIO TEST] Error playing chunk', e);
+      _isPlayingQueue = false;
+    }
+  }
+  
   /// Clear audio queue
   void clearQueue() {
-    // Alternative 방식에서는 개별 플레이어들이므로 특별한 클리어 불필요
-    AppLogger.info('Queue cleared (alternative file-based approach)');
+    _audioQueue.clear();
+    _isPlayingQueue = false;
+    _playbackTimer?.cancel();
+    AppLogger.info('🗑️ [AUDIO TEST] Queue cleared');
   }
   
   /// Calculate audio level for visualization
@@ -431,9 +482,9 @@ class EnhancedAudioStreamingService {
     
     await _recorder.dispose();
     
-    // StreamController 제거됨 - 더 이상 정리할 필요 없음
-    await _soundPlayer?.stopPlayer();
-    await _soundPlayer?.closePlayer();
+    // AudioPlayer 정리
+    await _audioPlayer.stop();
+    await _audioPlayer.dispose();
     
     await _audioLevelController.close();
     await _conversationStateController.close();

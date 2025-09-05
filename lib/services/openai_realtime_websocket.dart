@@ -242,7 +242,8 @@ IMPORTANT RULES:
           if (audioDelta != null) {
             final audioBytes = base64Decode(audioDelta);
             _audioDataController.add(audioBytes);
-            AppLogger.debug('🔊 Playing audio: ${audioBytes.length} bytes');
+            AppLogger.info('🔊 [AUDIO TEST] Received audio delta: ${audioBytes.length} bytes');
+            AppLogger.info('🔊 [AUDIO TEST] Audio data sent to controller');
           }
           break;
           
