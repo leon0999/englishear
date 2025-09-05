@@ -24,6 +24,7 @@ class OpenAIRealtimeWebSocket {
   String _currentAiTranscript = '';
   Function(String)? onAiTranscriptUpdate;
   Function(String)? onSpeakingStateChange;
+  Function()? onResponseCompleted; // Added callback for response completion
   
   // Public streams
   Stream<bool> get connectionStatusStream => _connectionStatusController.stream;
@@ -281,6 +282,7 @@ IMPORTANT RULES:
         case 'response.done':
           AppLogger.info('✅ Response completed');
           _updateSpeakingState('idle');
+          onResponseCompleted?.call(); // Notify audio service
           break;
           
         case 'rate_limits.updated':

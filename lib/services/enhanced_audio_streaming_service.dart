@@ -36,6 +36,13 @@ class EnhancedAudioStreamingService {
   
   EnhancedAudioStreamingService(this._websocket) {
     _setupListeners();
+    
+    // Set up callback for response completion
+    _websocket.onResponseCompleted = () {
+      AppLogger.info('🎯 Response completed - allowing AI audio playback');
+      _aiIsResponding = false;
+      _updateConversationState();
+    };
   }
   
   /// Initialize service with PCM streaming support
@@ -102,10 +109,10 @@ class EnhancedAudioStreamingService {
       
       // AI 오디오 재생 조건을 더 유연하게 변경
       if (audioData.isNotEmpty) {
-        AppLogger.info('📻 Received AI audio: ${audioData.length} bytes, Speaking: $_isSpeaking');
+        AppLogger.info('📻 Received AI audio: ${audioData.length} bytes, Speaking: $_isSpeaking, AI Responding: $_aiIsResponding');
         
-        // 사용자가 말하고 있어도 짧은 응답은 재생 (자연스러운 대화)
-        if (!_isSpeaking || audioData.length < 4800) { // 200ms 이하는 재생
+        // AI가 응답 중이고 사용자가 말하고 있지 않으면 재생
+        if (!_isSpeaking) {
           addAudioData(audioData);
         } else {
           AppLogger.info('⏸️ Skipping AI audio - user is speaking');
@@ -219,6 +226,7 @@ class EnhancedAudioStreamingService {
       
       AppLogger.info('User stopped speaking');
       _isSpeaking = false;
+      _aiIsResponding = true; // Set AI as responding
       _updateConversationState();
       
       // Cancel audio stream subscription
@@ -235,6 +243,7 @@ class EnhancedAudioStreamingService {
       // Commit audio and request response from Realtime API
       _websocket.commitAudioAndRespond();
       _aiIsResponding = true;
+      _isSpeaking = false; // Ensure speaking state is false
       resumeListening();
       _updateConversationState();
       
