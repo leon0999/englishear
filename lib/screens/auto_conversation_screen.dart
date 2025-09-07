@@ -37,7 +37,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
   bool _isInitializing = true;
   bool _permissionGranted = false;
   double _audioLevel = 0.0;
-  String _conversationState = 'idle';
+  ConversationState? _conversationState;
   bool _hasConversationHistory = false;
   bool _isProcessingUpgrade = false;
   String _jupiterTranscript = '';  // Jupiter AI transcript
@@ -169,9 +169,9 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     
     // 3. 대화 상태 업데이트
     setState(() {
-      _conversationState = 'idle';
+      _conversationState = null;  // Reset to null (idle state)
     });
-    AppLogger.test('✅ Conversation state set to idle');
+    AppLogger.test('✅ Conversation state reset to idle');
     
     AppLogger.test('==================== APP PAUSE COMPLETE ====================');
   }
