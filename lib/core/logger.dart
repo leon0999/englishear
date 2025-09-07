@@ -4,31 +4,79 @@ import 'package:flutter/foundation.dart';
 // Simple AppLogger class for straightforward logging
 class AppLogger {
   static bool _debugMode = true;
+  static bool _verboseMode = true; // Enable verbose logging for testing
   
   static void info(String message) {
     if (_debugMode) {
-      print('ℹ️ [INFO] $message');
+      final timestamp = DateTime.now().toIso8601String().substring(11, 23);
+      print('[$timestamp] ℹ️ [INFO] $message');
     }
   }
   
   static void warning(String message) {
     if (_debugMode) {
-      print('⚠️ [WARNING] $message');
+      final timestamp = DateTime.now().toIso8601String().substring(11, 23);
+      print('[$timestamp] ⚠️ [WARNING] $message');
     }
   }
   
-  static void error(String message, [dynamic error]) {
+  static void error(String message, [dynamic error, StackTrace? stackTrace]) {
     if (_debugMode) {
-      print('❌ [ERROR] $message');
+      final timestamp = DateTime.now().toIso8601String().substring(11, 23);
+      print('[$timestamp] ❌ [ERROR] $message');
       if (error != null) {
-        print('   Error details: $error');
+        print('[$timestamp]    Error details: $error');
+        print('[$timestamp]    Error type: ${error.runtimeType}');
+      }
+      if (stackTrace != null && _verboseMode) {
+        print('[$timestamp]    Stack trace:\n$stackTrace');
       }
     }
   }
   
   static void debug(String message) {
     if (_debugMode) {
-      print('🔍 [DEBUG] $message');
+      final timestamp = DateTime.now().toIso8601String().substring(11, 23);
+      print('[$timestamp] 🔍 [DEBUG] $message');
+    }
+  }
+  
+  // Test-specific logging methods
+  static void test(String message) {
+    if (_debugMode) {
+      final timestamp = DateTime.now().toIso8601String().substring(11, 23);
+      print('[$timestamp] 🧪 [TEST] $message');
+    }
+  }
+  
+  static void success(String message) {
+    if (_debugMode) {
+      final timestamp = DateTime.now().toIso8601String().substring(11, 23);
+      print('[$timestamp] ✅ [SUCCESS] $message');
+    }
+  }
+  
+  static void network(String message, {Map<String, dynamic>? data}) {
+    if (_debugMode && _verboseMode) {
+      final timestamp = DateTime.now().toIso8601String().substring(11, 23);
+      print('[$timestamp] 🌐 [NETWORK] $message');
+      if (data != null) {
+        data.forEach((key, value) {
+          print('[$timestamp]    $key: $value');
+        });
+      }
+    }
+  }
+  
+  static void audio(String message, {Map<String, dynamic>? data}) {
+    if (_debugMode) {
+      final timestamp = DateTime.now().toIso8601String().substring(11, 23);
+      print('[$timestamp] 🔊 [AUDIO] $message');
+      if (data != null && _verboseMode) {
+        data.forEach((key, value) {
+          print('[$timestamp]    $key: $value');
+        });
+      }
     }
   }
 }

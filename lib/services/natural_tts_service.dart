@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
 import 'dart:typed_data';
-// import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
+import 'package:audioplayers/audioplayers.dart';
 
 import 'package:http/http.dart' as http;
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -107,6 +107,12 @@ class NaturalTTSService {
   }
 
   Future<void> _generateAndQueueSegment(TextSegment segment) async {
+    // Check for empty text
+    if (segment.text.trim().isEmpty) {
+      AppLogger.warning('TTS skipped - empty text');
+      return;
+    }
+    
     try {
       final apiKey = dotenv.env['OPENAI_API_KEY'];
       if (apiKey == null || apiKey.isEmpty) {
@@ -123,7 +129,7 @@ class NaturalTTSService {
         },
         body: jsonEncode({
           'model': 'tts-1-hd',
-          'input': segment.text,
+          'input': segment.text.trim(),  // Trim whitespace
           'voice': _currentVoice.value,
           'response_format': 'opus',
           'speed': adjustedSpeed,

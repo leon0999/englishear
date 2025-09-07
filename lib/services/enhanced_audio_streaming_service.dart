@@ -5,7 +5,7 @@ import 'dart:io';
 import 'dart:collection';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:record/record.dart';
-import 'package:audio_session/audio_session.dart';
+import 'package:audio_session/audio_session.dart' as audio_session;
 import 'package:path_provider/path_provider.dart';
 import 'openai_realtime_websocket.dart';
 import '../core/logger.dart';
@@ -13,7 +13,7 @@ import '../core/logger.dart';
 /// Enhanced Audio Streaming Service for Realtime API with Direct PCM Streaming
 class EnhancedAudioStreamingService {
   final AudioRecorder _recorder = AudioRecorder();
-  AudioPlayer? _audioPlayer;
+  late final AudioPlayer _audioPlayer = AudioPlayer();
   
   // Swift와 같은 오디오 큐 시스템
   final Queue<Uint8List> _audioQueue = Queue<Uint8List>();
@@ -47,40 +47,53 @@ class EnhancedAudioStreamingService {
     _websocket.onResponseCompleted = () {
       AppLogger.info('🎯 Response completed - allowing AI audio playback');
       _aiIsResponding = false;
+      _isSpeaking = false;  // Reset speaking state when AI completes
+      AppLogger.test('Reset speaking state - AI response complete');
       _updateConversationState();
     };
   }
   
   /// Initialize service with PCM streaming support
   Future<void> initialize() async {
+    AppLogger.test('==================== AUDIO SERVICE INIT START ====================');
     AppLogger.info('🎵 Initializing audio service...');
     
     try {
-      // 먼저 오디오 세션 설정
-      final session = await AudioSession.instance;
-      await session.configure(AudioSessionConfiguration.speech());
+      // 오디오 세션 설정 - speech 설정 사용 (더 안정적)
+      AppLogger.test('Setting up audio session...');
+      final session = await audio_session.AudioSession.instance;
+      await session.configure(audio_session.AudioSessionConfiguration.speech());
       await session.setActive(true);
+      AppLogger.success('Audio session configured and activated');
       
       // Request microphone permission
-      if (!await _recorder.hasPermission()) {
+      AppLogger.test('Checking microphone permission...');
+      final hasPermission = await _recorder.hasPermission();
+      AppLogger.audio('Microphone permission status', data: {'hasPermission': hasPermission});
+      if (!hasPermission) {
         AppLogger.warning('Microphone permission not granted');
         return;
       }
+      AppLogger.success('Microphone permission granted');
       
       // AudioPlayer 초기화 - WAV 파일 재생용
+      AppLogger.test('Initializing AudioPlayer...');
       await _audioPlayer.setReleaseMode(ReleaseMode.stop);
       await _audioPlayer.setVolume(1.0);
+      await _audioPlayer.setPlayerMode(PlayerMode.mediaPlayer);
       
       _isInitialized = true;
       
-      AppLogger.info('✅ Audio streaming ready (WAV mode)');
+      AppLogger.success('Audio streaming ready (WAV mode)');
+      AppLogger.test('==================== AUDIO SERVICE INIT COMPLETE ====================');
       
       // Auto-start continuous listening after initialization
       await Future.delayed(const Duration(seconds: 1));
       await startContinuousListening();
       
-    } catch (e) {
-      AppLogger.error('❌ Audio init error', e);
+    } catch (e, stackTrace) {
+      AppLogger.error('❌ Audio init error', e, stackTrace);
+      AppLogger.test('Attempting retry initialization...');
       // 에러 발생 시 재시도
       await _retryInitialize();
     }
@@ -113,15 +126,18 @@ class EnhancedAudioStreamingService {
       
       // AI 오디오 재생 조건을 더 유연하게 변경
       if (audioData.isNotEmpty) {
-        AppLogger.info('📻 Received AI audio: ${audioData.length} bytes, Speaking: $_isSpeaking, AI Responding: $_aiIsResponding');
+        AppLogger.test('📻 Received AI audio: ${audioData.length} bytes');
+        AppLogger.test('   Current _isSpeaking: $_isSpeaking');
+        AppLogger.test('   Current _aiIsResponding: $_aiIsResponding');
         
-        // AI가 응답 중이고 사용자가 말하고 있지 않으면 재생
+        // 더 적극적으로 오디오 재생 - _isSpeaking이 false일 때 바로 재생
         if (!_isSpeaking) {
-          AppLogger.info('🎯 [AUDIO TEST] Calling addAudioData...');
-          // Swift처럼 즉시 큐에 추가 (동기 호출)
+          AppLogger.success('[AUDIO] Playing AI audio - user not speaking');
           addAudioData(audioData);
         } else {
-          AppLogger.info('⏸️ [AUDIO TEST] Skipping AI audio - user is speaking');
+          AppLogger.warning('[AUDIO] Skipping AI audio - user is speaking');
+          // 상태를 다시 확인하고 필요시 리셋
+          AppLogger.test('Double-checking speaking state...');
         }
       }
     });
@@ -209,14 +225,25 @@ class EnhancedAudioStreamingService {
       // Stream audio chunks to WebSocket
       _audioStreamSubscription = stream.listen(
         (chunk) {
+          final audioData = Uint8List.fromList(chunk);
+          
           // Send audio chunk to Realtime API
-          _websocket.sendAudio(Uint8List.fromList(chunk));
+          _websocket.sendAudio(audioData);
           
           // Save for conversation history
           audioChunks.addAll(chunk);
           
+          // Also save to conversation history immediately for replay
+          if (audioData.isNotEmpty) {
+            conversationHistory.add(ConversationSegment(
+              role: 'user',
+              audioData: audioData,
+              timestamp: DateTime.now(),
+            ));
+          }
+          
           // Calculate audio level for visualization
-          _calculateAudioLevel(Uint8List.fromList(chunk));
+          _calculateAudioLevel(audioData);
         },
         onError: (error) {
           AppLogger.error('Audio stream error', error);
@@ -340,6 +367,10 @@ class EnhancedAudioStreamingService {
       } catch (e) {
         AppLogger.warning('Could not stop previous playback: $e');
       }
+      
+      // 오디오 세션 활성화 확인
+      final session = await audio_session.AudioSession.instance;
+      await session.setActive(true);
       
       // 새 파일 재생 시작
       AppLogger.info('▶️ Starting playback...');
@@ -472,6 +503,57 @@ class EnhancedAudioStreamingService {
   
   /// Check if user is speaking
   bool get isSpeaking => _isSpeaking;
+  
+  /// Reset speaking state (called from app lifecycle)
+  void resetSpeakingState() {
+    AppLogger.test('Resetting speaking state');
+    _isSpeaking = false;
+    _aiIsResponding = false;
+    _updateConversationState();
+  }
+  
+  /// Reset all state (called when app resumes)
+  Future<void> resetState() async {
+    AppLogger.test('Resetting audio service state');
+    _isSpeaking = false;
+    _aiIsResponding = false;
+    _isPlaying = false;
+    
+    // Clear audio queue
+    clearQueue();
+    
+    // Stop any ongoing playback
+    await _audioPlayer.stop();
+    
+    // Update conversation state
+    _updateConversationState();
+    
+    AppLogger.success('Audio service state reset complete');
+  }
+  
+  /// Reinitialize service (for app resume)
+  Future<void> reinitialize() async {
+    AppLogger.test('==================== AUDIO SERVICE REINIT START ====================');
+    AppLogger.info('🔄 Reinitializing audio service...');
+    
+    // First dispose existing resources
+    await dispose();
+    
+    // Wait a bit for cleanup
+    await Future.delayed(const Duration(milliseconds: 200));
+    
+    // Reinitialize
+    await initialize();
+    
+    AppLogger.test('==================== AUDIO SERVICE REINIT COMPLETE ====================');
+  }
+  
+  /// Pause streaming (for app pause)
+  void pauseStreaming() {
+    AppLogger.info('Pausing audio streaming');
+    _isPlaying = false;
+    _audioPlayer.stop();
+  }
   
   /// Dispose resources
   Future<void> dispose() async {

@@ -36,11 +36,30 @@ class OpenAIRealtimeWebSocket {
   // Connection state
   bool _isConnected = false;
   String? _sessionId;
+  bool _isResponseInProgress = false;  // Flag to prevent duplicate responses
   
   OpenAIRealtimeWebSocket() : apiKey = dotenv.env['OPENAI_API_KEY'] ?? '' {
     if (apiKey.isEmpty) {
       AppLogger.error('OpenAI API key not found in environment');
     }
+  }
+  
+  /// Check if WebSocket is connected
+  bool get isConnected {
+    if (_iosWebSocket != null) {
+      return _isConnected && _iosWebSocket?.readyState == WebSocket.open;
+    } else if (_channel != null) {
+      return _isConnected;
+    }
+    return false;
+  }
+  
+  /// Reset response state (called when app pauses)
+  void resetResponseState() {
+    AppLogger.test('Resetting WebSocket response state');
+    _isResponseInProgress = false;
+    _currentAiTranscript = '';
+    onSpeakingStateChange?.call('idle');
   }
   
   /// Connect to OpenAI Realtime WebSocket
@@ -277,11 +296,19 @@ IMPORTANT RULES:
         case 'input_audio_buffer.speech_stopped':
           // User stopped speaking
           AppLogger.info('🤐 User stopped speaking');
+          _handleUserSpeechStopped();
           _updateSpeakingState('idle');
+          break;
+          
+        case 'input_audio_buffer.committed':
+          // Audio buffer committed - ensure speaking state is reset
+          AppLogger.debug('Audio buffer committed - resetting speaking state');
+          _handleUserSpeechStopped();  // Safety reset
           break;
           
         case 'response.done':
           AppLogger.info('✅ Response completed');
+          _isResponseInProgress = false;  // Reset flag when response is done
           _updateSpeakingState('idle');
           onResponseCompleted?.call(); // Notify audio service
           break;
@@ -302,6 +329,14 @@ IMPORTANT RULES:
     // This prevents AI echo when user interrupts
     AppLogger.info('🎙️ User speech started - sending interrupt signal');
     _audioDataController.add(Uint8List(0));  // Send empty data as stop signal
+  }
+  
+  /// Handle user speech stopped event
+  void _handleUserSpeechStopped() {
+    // Signal to audio service that user has stopped speaking
+    AppLogger.info('🎯 User speech stopped - signaling to audio service');
+    // This will be handled by the audio service's onResponseCompleted callback
+    onResponseCompleted?.call();
   }
   
   /// Update AI transcript for UI display
@@ -360,13 +395,18 @@ IMPORTANT RULES:
       'type': 'input_audio_buffer.commit',
     });
     
-    // Create response
-    _sendEvent({
-      'type': 'response.create',
-      'response': {
-        'modalities': ['text', 'audio'],
-      }
-    });
+    // Create response only if not already in progress
+    if (!_isResponseInProgress) {
+      _isResponseInProgress = true;
+      _sendEvent({
+        'type': 'response.create',
+        'response': {
+          'modalities': ['text', 'audio'],
+        }
+      });
+    } else {
+      AppLogger.info('⏳ Response already in progress, skipping duplicate request');
+    }
   }
   
   /// Send text message
@@ -390,10 +430,15 @@ IMPORTANT RULES:
       }
     });
     
-    // Create response
-    _sendEvent({
-      'type': 'response.create',
-    });
+    // Create response only if not already in progress
+    if (!_isResponseInProgress) {
+      _isResponseInProgress = true;
+      _sendEvent({
+        'type': 'response.create',
+      });
+    } else {
+      AppLogger.info('⏳ Response already in progress, skipping duplicate request');
+    }
   }
   
   /// Start conversation with Jupiter greeting
@@ -503,9 +548,6 @@ IMPORTANT RULES:
       return false;
     }
   }
-  
-  /// Check if connected
-  bool get isConnected => _isConnected;
   
   /// Disconnect from WebSocket
   void disconnect() {

@@ -340,6 +340,12 @@ class ConversationService extends ChangeNotifier {
 
   // TTS로 텍스트 말하기
   Future<void> speakText(String text) async {
+    // 빈 문자열 체크
+    if (text == null || text.trim().isEmpty) {
+      Logger.warning('TTS skipped - empty text');
+      return;
+    }
+    
     try {
       _isSpeaking = true;
       notifyListeners();

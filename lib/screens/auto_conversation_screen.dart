@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:audio_session/audio_session.dart';
 import '../services/openai_realtime_websocket.dart';
 import '../services/enhanced_audio_streaming_service.dart';
 import '../services/conversation_improver_service.dart';
@@ -60,20 +61,122 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
   }
   
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
+  void didChangeAppLifecycleState(AppLifecycleState state) async {
     super.didChangeAppLifecycleState(state);
     
-    // Handle app resume from settings
-    if (state == AppLifecycleState.resumed) {
-      AppLogger.info('📱 App resumed, checking permissions...');
-      _checkPermissionAfterSettings();
-    } else if (state == AppLifecycleState.paused) {
-      AppLogger.info('⏸️ App paused');
-      // Stop audio when app is paused
-      _audioService.stopStreaming().catchError((e) {
-        AppLogger.error('Failed to stop streaming on pause', e);
+    switch (state) {
+      case AppLifecycleState.resumed:
+        AppLogger.info('📱 App resumed, reinitializing services...');
+        await _handleAppResume();
+        break;
+        
+      case AppLifecycleState.paused:
+        AppLogger.info('⏸️ App paused - resetting states');
+        _handleAppPause();
+        break;
+        
+      case AppLifecycleState.inactive:
+        AppLogger.debug('App inactive');
+        break;
+        
+      case AppLifecycleState.detached:
+        AppLogger.debug('App detached');
+        break;
+        
+      case AppLifecycleState.hidden:
+        AppLogger.debug('App hidden');
+        break;
+    }
+  }
+  
+  Future<void> _handleAppResume() async {
+    AppLogger.test('==================== APP RESUME START ====================');
+    
+    // 1. 오디오 세션 재활성화
+    try {
+      final session = await AudioSession.instance;
+      await session.setActive(true);
+      AppLogger.success('Audio session reactivated');
+    } catch (e) {
+      AppLogger.error('Failed to reactivate audio session', e);
+    }
+    
+    // 2. 모든 상태 강제 리셋
+    AppLogger.test('🔄 Force resetting all states...');
+    
+    // Audio service 상태 리셋
+    _audioService.resetSpeakingState();
+    AppLogger.test('✅ Audio service speaking state reset');
+    
+    // WebSocket 응답 상태 리셋
+    _websocket.resetResponseState();
+    AppLogger.test('✅ WebSocket response state reset');
+    
+    // 오디오 버퍼 클리어
+    try {
+      await _websocket.sendEvent({
+        'type': 'input_audio_buffer.clear'
+      });
+      AppLogger.test('✅ Audio buffer cleared');
+    } catch (e) {
+      AppLogger.warning('Could not clear audio buffer: $e');
+    }
+    
+    // 3. WebSocket 연결 상태 확인 및 재연결
+    if (!_websocket.isConnected) {
+      AppLogger.info('🔄 WebSocket disconnected - reconnecting...');
+      _websocket.disconnect();  // void 반환이므로 await 제거
+      await Future.delayed(const Duration(milliseconds: 500));
+      await _initializeAndStart();
+    } else {
+      AppLogger.success('WebSocket still connected');
+      
+      // 연결은 되어 있지만 상태만 리셋
+      AppLogger.test('🎯 WebSocket connected - resetting audio service state only');
+      await _audioService.reinitialize();
+    }
+    
+    // 4. 마이크 권한 재확인
+    _checkPermissionAfterSettings();
+    
+    AppLogger.test('==================== APP RESUME COMPLETE ====================');
+  }
+  
+  void _handleAppPause() {
+    AppLogger.test('==================== APP PAUSE START ====================');
+    
+    // 1. 오디오 녹음 중지
+    if (_audioService != null) {
+      _audioService.stopRecording();
+      AppLogger.test('🛑 Audio recording stopped');
+      
+      // 사용자 말하기 상태 리셋
+      _audioService.resetSpeakingState();
+      AppLogger.test('✅ Speaking state reset');
+    }
+    
+    // 2. WebSocket 상태 리셋
+    if (_websocket != null) {
+      _websocket.resetResponseState();
+      AppLogger.test('✅ WebSocket response state reset');
+      
+      // 오디오 버퍼 클리어 (비동기이지만 대기하지 않음)
+      _websocket.sendEvent({
+        'type': 'input_audio_buffer.clear'
+      }).then((_) {
+        AppLogger.test('✅ Audio buffer cleared on pause');
+      }).catchError((e) {
+        AppLogger.warning('Could not clear audio buffer on pause: $e');
       });
     }
+    
+    // 3. 대화 상태 업데이트
+    setState(() {
+      _conversationState = 'idle';
+    });
+    AppLogger.test('✅ Conversation state set to idle');
+    
+    AppLogger.test('==================== APP PAUSE COMPLETE ====================');
   }
   
   Future<void> _checkPermissionAfterSettings() async {
