@@ -37,7 +37,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
   bool _isInitializing = true;
   bool _permissionGranted = false;
   double _audioLevel = 0.0;
-  ConversationState? _conversationState;
+  String _conversationState = 'idle';
   bool _hasConversationHistory = false;
   bool _isProcessingUpgrade = false;
   String _jupiterTranscript = '';  // Jupiter AI transcript
@@ -114,10 +114,10 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     
     // 오디오 버퍼 클리어
     try {
-      await _websocket.sendEvent({
+      _websocket.sendEvent({
         'type': 'input_audio_buffer.clear'
       });
-      AppLogger.test('✅ Audio buffer cleared');
+      AppLogger.test('✅ Audio buffer clear requested');
     } catch (e) {
       AppLogger.warning('Could not clear audio buffer: $e');
     }
@@ -147,7 +147,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     
     // 1. 오디오 녹음 중지
     if (_audioService != null) {
-      _audioService.stopRecording();
+      _audioService.stopListening();
       AppLogger.test('🛑 Audio recording stopped');
       
       // 사용자 말하기 상태 리셋
@@ -160,14 +160,11 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       _websocket.resetResponseState();
       AppLogger.test('✅ WebSocket response state reset');
       
-      // 오디오 버퍼 클리어 (비동기이지만 대기하지 않음)
+      // 오디오 버퍼 클리어
       _websocket.sendEvent({
         'type': 'input_audio_buffer.clear'
-      }).then((_) {
-        AppLogger.test('✅ Audio buffer cleared on pause');
-      }).catchError((e) {
-        AppLogger.warning('Could not clear audio buffer on pause: $e');
       });
+      AppLogger.test('✅ Audio buffer clear requested on pause');
     }
     
     // 3. 대화 상태 업데이트
