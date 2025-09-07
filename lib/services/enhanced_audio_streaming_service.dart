@@ -163,8 +163,8 @@ class EnhancedAudioStreamingService {
     _audioQueue.add(pcmData);
     AppLogger.info('📦 [AUDIO TEST] Queue size: ${_audioQueue.length}');
     
-    // 재생이 시작되지 않았다면 시작
-    _startPlaybackIfNeeded();
+    // 즉시 재생 처리 시작 (재생 중이 아니라면)
+    _startPlaybackProcessing();
     
     // Save AI audio for conversation history
     conversationHistory.add(ConversationSegment(
@@ -403,49 +403,150 @@ class EnhancedAudioStreamingService {
   }
 
 
-  /// Start playback if needed (Swift 방식)
-  void _startPlaybackIfNeeded() {
-    if (!_isPlayingQueue && _audioQueue.isNotEmpty) {
-      AppLogger.info('▶️ [AUDIO TEST] Starting playback timer');
-      _isPlayingQueue = true;
-      _processNextAudioChunk();
+  Timer? _playbackTimer;
+  bool _isProcessingAudio = false;
+  
+  /// Start playback processing with timer
+  void _startPlaybackProcessing() {
+    if (_audioQueue.isEmpty) return;
+    
+    // 타이머가 없으면 생성
+    _playbackTimer ??= Timer.periodic(const Duration(milliseconds: 100), (_) {
+      _processAudioQueue();
+    });
+    
+    // 즉시 처리도 시작
+    _processAudioQueue();
+  }
+  
+  /// Process audio queue
+  Future<void> _processAudioQueue() async {
+    if (_isProcessingAudio || _audioQueue.isEmpty) return;
+    
+    _isProcessingAudio = true;
+    
+    try {
+      // 큐에서 데이터 가져오기
+      final audioData = _audioQueue.removeFirst();
+      AppLogger.info('🎵 [AUDIO TEST] Processing chunk: ${audioData.length} bytes, remaining: ${_audioQueue.length}');
+      
+      // WAV 파일 생성 및 재생
+      await _playWavAudio(audioData);
+      
+    } catch (e) {
+      AppLogger.error('❌ Error processing audio', e);
+    } finally {
+      _isProcessingAudio = false;
+      
+      // 큐가 비었으면 타이머 정지
+      if (_audioQueue.isEmpty) {
+        _playbackTimer?.cancel();
+        _playbackTimer = null;
+        AppLogger.info('✅ [AUDIO TEST] All audio chunks played');
+      }
     }
   }
   
-  /// Process next audio chunk from queue
-  Future<void> _processNextAudioChunk() async {
-    if (_audioQueue.isEmpty) {
-      AppLogger.info('⏹ [AUDIO TEST] Queue empty, stopping playback');
-      _isPlayingQueue = false;
-      return;
-    }
-    
-    final pcmData = _audioQueue.removeFirst();
-    AppLogger.info('🎵 [AUDIO TEST] Processing chunk: ${pcmData.length} bytes, remaining: ${_audioQueue.length}');
-    
+  /// Start playback if needed (Swift 방식) - 기존 호환성용
+  void _startPlaybackIfNeeded() {
+    _startPlaybackProcessing();
+  }
+  
+  /// Play WAV audio directly
+  Future<void> _playWavAudio(Uint8List pcmData) async {
     try {
-      await _playPCMAsWAV(pcmData);
+      AppLogger.info('🎵 Starting WAV playback process...');
       
-      // 재생 완료 후 다음 청크 처리
-      if (_audioQueue.isNotEmpty) {
-        // 짧은 지연 후 다음 청크 재생 (버퍼 언더런 방지)
-        await Future.delayed(const Duration(milliseconds: 50));
-        _processNextAudioChunk();
-      } else {
-        _isPlayingQueue = false;
-        AppLogger.info('✅ [AUDIO TEST] All audio chunks played');
-      }
+      // WAV 헤더 추가
+      final wavData = _createWavFile(pcmData);
+      
+      // 임시 파일 생성
+      final tempDir = await getTemporaryDirectory();
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final tempFile = File('${tempDir.path}/jupiter_$timestamp.wav');
+      
+      AppLogger.info('📁 Creating temp file: ${tempFile.path}');
+      await tempFile.writeAsBytes(wavData);
+      AppLogger.info('🎵 WAV file created: ${tempFile.path} (${wavData.length} bytes)');
+      
+      // 이전 재생 중지
+      await _audioPlayer.stop();
+      AppLogger.info('⏹️ Previous playback stopped');
+      
+      // 새로운 재생 시작
+      AppLogger.info('▶️ Starting playback...');
+      await _audioPlayer.play(DeviceFileSource(tempFile.path));
+      AppLogger.info('✅ Jupiter voice playback started successfully');
+      
+      // 재생 완료 리스너
+      _audioPlayer.onPlayerComplete.listen((_) async {
+        try {
+          if (await tempFile.exists()) {
+            await tempFile.delete();
+            AppLogger.info('🗑️ Temp file cleaned up');
+          }
+        } catch (e) {
+          AppLogger.warning('Could not delete temp file: $e');
+        }
+      });
+      
     } catch (e) {
-      AppLogger.error('❌ [AUDIO TEST] Error playing chunk', e);
-      _isPlayingQueue = false;
+      AppLogger.error('❌ WAV playback error', e);
     }
+  }
+  
+  /// Create WAV file from PCM data
+  Uint8List _createWavFile(Uint8List pcmData) {
+    // WAV 헤더 생성 (44 bytes)
+    const channels = 1;
+    const sampleRate = 24000;
+    const bitsPerSample = 16;
+    
+    final byteRate = sampleRate * channels * bitsPerSample ~/ 8;
+    final blockAlign = channels * bitsPerSample ~/ 8;
+    final dataSize = pcmData.length;
+    final fileSize = dataSize + 36;
+    
+    final header = BytesBuilder();
+    
+    // RIFF header
+    header.add(utf8.encode('RIFF'));
+    header.add(_int32ToBytes(fileSize));
+    header.add(utf8.encode('WAVE'));
+    
+    // fmt chunk
+    header.add(utf8.encode('fmt '));
+    header.add(_int32ToBytes(16)); // fmt chunk size
+    header.add(_int16ToBytes(1)); // PCM format
+    header.add(_int16ToBytes(channels));
+    header.add(_int32ToBytes(sampleRate));
+    header.add(_int32ToBytes(byteRate));
+    header.add(_int16ToBytes(blockAlign));
+    header.add(_int16ToBytes(bitsPerSample));
+    
+    // data chunk
+    header.add(utf8.encode('data'));
+    header.add(_int32ToBytes(dataSize));
+    header.add(pcmData);
+    
+    return header.toBytes();
+  }
+  
+  Uint8List _int16ToBytes(int value) {
+    return Uint8List(2)..buffer.asByteData().setInt16(0, value, Endian.little);
+  }
+  
+  Uint8List _int32ToBytes(int value) {
+    return Uint8List(4)..buffer.asByteData().setInt32(0, value, Endian.little);
   }
   
   /// Clear audio queue
   void clearQueue() {
     _audioQueue.clear();
     _isPlayingQueue = false;
+    _isProcessingAudio = false;
     _playbackTimer?.cancel();
+    _playbackTimer = null;
     AppLogger.info('🗑️ [AUDIO TEST] Queue cleared');
   }
   
