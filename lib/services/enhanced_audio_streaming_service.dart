@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:convert';
 import '../utils/audio_utils.dart';
 import 'dart:async';
 import 'dart:io';
@@ -19,6 +20,7 @@ class EnhancedAudioStreamingService {
   final Queue<Uint8List> _audioQueue = Queue<Uint8List>();
   bool _isPlayingQueue = false;  // 큐 재생 상태
   Timer? _playbackTimer;
+  bool _isProcessingAudio = false;  // 오디오 처리 중 플래그
   final OpenAIRealtimeWebSocket _websocket;
   
   StreamSubscription? _audioStreamSubscription;
@@ -401,10 +403,6 @@ class EnhancedAudioStreamingService {
       rethrow; // 재시도 로직에서 처리하도록 예외 재전파
     }
   }
-
-
-  Timer? _playbackTimer;
-  bool _isProcessingAudio = false;
   
   /// Start playback processing with timer
   void _startPlaybackProcessing() {
