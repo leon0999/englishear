@@ -317,6 +317,21 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       
       AppLogger.info('✅ All services initialized successfully');
       
+      // 초기 상태 리셋 후 Jupiter 인사 시작
+      Future.delayed(const Duration(milliseconds: 1000), () {
+        if (mounted && _isConnected) {
+          AppLogger.test('🎯 Starting Jupiter greeting after state reset');
+          
+          // 상태 리셋
+          _audioService.resetSpeakingState();
+          _websocket.resetResponseState();
+          AppLogger.test('✅ State reset before Jupiter greeting');
+          
+          // Jupiter 인사 시작
+          _startJupiterGreeting();
+        }
+      });
+      
     } catch (e) {
       AppLogger.error('❌ Error initializing services', e);
       setState(() {

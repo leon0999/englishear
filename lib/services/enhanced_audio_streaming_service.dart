@@ -14,7 +14,7 @@ import '../core/logger.dart';
 /// Enhanced Audio Streaming Service for Realtime API with Direct PCM Streaming
 class EnhancedAudioStreamingService {
   final AudioRecorder _recorder = AudioRecorder();
-  late final AudioPlayer _audioPlayer = AudioPlayer();
+  late AudioPlayer _audioPlayer;
   
   // Swift와 같은 오디오 큐 시스템
   final Queue<Uint8List> _audioQueue = Queue<Uint8List>();
@@ -59,6 +59,17 @@ class EnhancedAudioStreamingService {
   Future<void> initialize() async {
     AppLogger.test('==================== AUDIO SERVICE INIT START ====================');
     AppLogger.info('🎵 Initializing audio service...');
+    
+    // 초기 상태 리셋
+    _isSpeaking = false;
+    _aiIsResponding = false;
+    _isPlaying = false;
+    _isRecording = false;
+    AppLogger.test('🔄 Initial state reset - _isSpeaking: false');
+    
+    // AudioPlayer 초기화
+    _audioPlayer = AudioPlayer();
+    AppLogger.test('✅ AudioPlayer initialized');
     
     try {
       // 오디오 세션 설정 - speech 설정 사용 (더 안정적)
@@ -635,8 +646,38 @@ class EnhancedAudioStreamingService {
     AppLogger.test('==================== AUDIO SERVICE REINIT START ====================');
     AppLogger.info('🔄 Reinitializing audio service...');
     
-    // First dispose existing resources
-    await dispose();
+    // 상태 강제 리셋
+    _isSpeaking = false;
+    _aiIsResponding = false;
+    _isPlaying = false;
+    _isRecording = false;
+    AppLogger.test('🔄 Force state reset - _isSpeaking: false, _aiIsResponding: false');
+    
+    // StreamController 재생성
+    try {
+      // 기존 컨트롤러 정리
+      await _audioLevelController.close();
+      await _conversationStateController.close();
+    } catch (e) {
+      AppLogger.warning('Could not close existing controllers: $e');
+    }
+    
+    // 새 컨트롤러 생성
+    _audioLevelController = StreamController<double>.broadcast();
+    _conversationStateController = StreamController<ConversationState>.broadcast();
+    AppLogger.test('✅ StreamControllers recreated');
+    
+    // AudioPlayer 재초기화
+    try {
+      await _audioPlayer.stop();
+      await _audioPlayer.dispose();
+    } catch (e) {
+      AppLogger.warning('Could not dispose audio player: $e');
+    }
+    
+    // 새 AudioPlayer 생성
+    _audioPlayer = AudioPlayer();
+    AppLogger.test('✅ AudioPlayer recreated');
     
     // Wait a bit for cleanup
     await Future.delayed(const Duration(milliseconds: 200));
