@@ -36,8 +36,8 @@ class EnhancedAudioStreamingService {
   final List<ConversationSegment> conversationHistory = [];
   
   // Stream controllers
-  final _audioLevelController = StreamController<double>.broadcast();
-  final _conversationStateController = StreamController<ConversationState>.broadcast();
+  late StreamController<double> _audioLevelController;
+  late StreamController<ConversationState> _conversationStateController;
   
   Stream<double> get audioLevelStream => _audioLevelController.stream;
   Stream<ConversationState> get conversationStateStream => _conversationStateController.stream;
@@ -70,6 +70,11 @@ class EnhancedAudioStreamingService {
     // AudioPlayer 초기화
     _audioPlayer = AudioPlayer();
     AppLogger.test('✅ AudioPlayer initialized');
+    
+    // StreamController 초기화
+    _audioLevelController = StreamController<double>.broadcast();
+    _conversationStateController = StreamController<ConversationState>.broadcast();
+    AppLogger.test('✅ StreamControllers initialized');
     
     try {
       // 오디오 세션 설정 - speech 설정 사용 (더 안정적)
