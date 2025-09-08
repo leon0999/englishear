@@ -234,7 +234,7 @@ class EnhancedAudioStreamingService {
       // 오디오 큐 클리어 및 재생 중지
       _audioQueue.clear();
       await _audioPlayer.stop();
-      _isCurrentlyPlaying = false;
+      _isPlaying = false;
       
       // Check microphone permission
       if (!await _recorder.hasPermission()) {
