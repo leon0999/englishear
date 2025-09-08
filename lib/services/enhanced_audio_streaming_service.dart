@@ -19,9 +19,14 @@ class EnhancedAudioStreamingService {
   // Timer 기반 오디오 큐 시스템
   final List<Uint8List> _audioQueue = [];
   bool _isPlaying = false;  // 현재 재생 중
-  Timer? _processTimer;  // 큐 처리 타이머 (100ms 주기)
+  Timer? _processTimer;  // 큐 처리 타이머 (300ms 주기로 변경)
   StreamSubscription? _playerCompleteSubscription;  // 재생 완료 리스너
   final OpenAIRealtimeWebSocket _websocket;
+  
+  // 24kHz, 16-bit PCM 설정
+  static const int sampleRate = 24000;
+  static const int bytesPerSample = 2;
+  static const int channels = 1;
   
   StreamSubscription? _audioStreamSubscription;
   StreamSubscription? _audioDataSubscription;
@@ -74,14 +79,18 @@ class EnhancedAudioStreamingService {
     
     // AudioPlayer 초기화
     _audioPlayer = AudioPlayer();
-    AppLogger.test('✅ AudioPlayer initialized');
+    // 음성 속도 조절 (0.8 = 20% 느리게)
+    await _audioPlayer.setPlaybackRate(0.8);
+    AppLogger.test('✅ AudioPlayer initialized with 0.8x playback rate');
     
-    // Timer 기반 큐 처리 시작 (100ms마다)
+    // Timer 기반 큐 처리 시작 (300ms마다로 변경)
     _processTimer?.cancel();
-    _processTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      _processQueue();
+    _processTimer = Timer.periodic(const Duration(milliseconds: 300), (_) {
+      if (!_isPlaying && _audioQueue.isNotEmpty && !_isSpeaking) {
+        _processQueue();
+      }
     });
-    AppLogger.test('✅ Process timer started (100ms interval)');
+    AppLogger.test('✅ Process timer started (300ms interval)');
     
     // StreamController 재초기화 (이미 생성자에서 초기화됨)
     if (_audioLevelController == null || _audioLevelController!.isClosed) {
@@ -447,28 +456,27 @@ class EnhancedAudioStreamingService {
     }
   }
   
-  /// Process audio queue (called by timer every 100ms)
+  /// Process audio queue (called by timer every 300ms)
   Future<void> _processQueue() async {
     // 이미 재생 중이거나 큐가 비었거나 사용자가 말하고 있으면 스킵
     if (_isPlaying || _audioQueue.isEmpty || _isSpeaking) {
       return;
     }
     
-    // 최소 3개 청크가 쌍일 때까지 대기 (초기 버퍼링)
-    // 단, 큐가 비어가고 있지 않으면 즉시 처리
-    if (_audioQueue.length < 3 && _aiIsResponding) {
+    // 최소 5개 청크가 모일 때까지 대기 (충분한 버퍼링)
+    if (_audioQueue.length < 5) {
       return;
     }
     
     _isPlaying = true;
     
     try {
-      // 최대 5개 청크 합치기 (약 0.5초)
+      // 최대 10개 청크 합치기 (약 1초 분량)
+      int chunksToProcess = _audioQueue.length > 10 ? 10 : _audioQueue.length;
       final chunks = <Uint8List>[];
       int totalSize = 0;
-      final chunkCount = _audioQueue.length > 5 ? 5 : _audioQueue.length;
       
-      for (int i = 0; i < chunkCount; i++) {
+      for (int i = 0; i < chunksToProcess; i++) {
         if (_audioQueue.isEmpty) break;
         final chunk = _audioQueue.removeAt(0);
         chunks.add(chunk);
@@ -480,16 +488,13 @@ class EnhancedAudioStreamingService {
         return;
       }
       
-      AppLogger.info('🎵 [AUDIO] Playing: $totalSize bytes from ${chunks.length} chunks, queue: ${_audioQueue.length}');
+      AppLogger.info('🎵 [AUDIO] Playing: $totalSize bytes from ${chunks.length} chunks, remaining queue: ${_audioQueue.length}');
       
-      // 합친 데이터로 WAV 생성
+      // PCM 데이터 합치기
       final combinedData = _combineChunks(chunks, totalSize);
-      await _playWavAsync(combinedData);
       
-      // 큐에 많이 쌍였으면 지연 없이 재생
-      if (_audioQueue.length > 10) {
-        _isPlaying = false; // 즉시 다음 처리 허용
-      }
+      // WAV 파일 생성 및 재생
+      await _playWavWithProperTiming(combinedData);
       
     } catch (e) {
       AppLogger.error('❌ [AUDIO] Playback error: $e', e);
@@ -508,8 +513,8 @@ class EnhancedAudioStreamingService {
     return combined;
   }
   
-  /// Play WAV audio asynchronously
-  Future<void> _playWavAsync(Uint8List pcmData) async {
+  /// Play WAV audio with proper timing
+  Future<void> _playWavWithProperTiming(Uint8List pcmData) async {
     try {
       // WAV 헤더 추가
       final wavData = _createWavFile(pcmData);
@@ -525,78 +530,69 @@ class EnhancedAudioStreamingService {
       if (_isSpeaking) {
         AppLogger.info('🛑 [AUDIO] User speaking - abort playback');
         _isPlaying = false;
+        await tempFile.delete();
         return;
       }
       
-      // 비동기 재생 (완료를 기다리지 않음)
+      // 재생 시작
       AppLogger.info('▶️ [AUDIO] Starting playback...');
-      _audioPlayer.play(DeviceFileSource(tempFile.path)).then((_) {
-        AppLogger.info('🏁 [AUDIO] Playback completed');
-        _isPlaying = false;
-        
-        // 큐에 많이 쌍였으면 즉시 다음 재생
-        if (_audioQueue.length > 10) {
-          _processQueue();
-        }
-      }).catchError((e) {
-        AppLogger.error('❌ [AUDIO] Play error: $e');
-        _isPlaying = false;
-      });
+      await _audioPlayer.play(DeviceFileSource(tempFile.path));
       
-      // 파일 정리는 2초 후
-      Future.delayed(const Duration(seconds: 2), () async {
-        try {
-          if (await tempFile.exists()) {
-            await tempFile.delete();
-          }
-        } catch (e) {
-          // 무시
-        }
-      });
+      // 실제 오디오 길이 계산 (밀리초)
+      final durationMs = (pcmData.length / (sampleRate * bytesPerSample * channels)) * 1000;
+      // 재생 속도 0.8 보정
+      final adjustedDurationMs = durationMs / 0.8;
+      
+      AppLogger.info('⏱️ [AUDIO] Duration: ${durationMs.toInt()}ms, Adjusted: ${adjustedDurationMs.toInt()}ms');
+      
+      // 계산된 시간만큼 대기
+      await Future.delayed(Duration(milliseconds: adjustedDurationMs.toInt()));
+      
+      AppLogger.info('🏁 [AUDIO] Playback completed');
+      
+      // 파일 삭제
+      try {
+        await tempFile.delete();
+      } catch (e) {
+        // 무시
+      }
       
     } catch (e) {
       AppLogger.error('❌ [AUDIO] WAV playback error', e);
+    } finally {
       _isPlaying = false;
     }
   }
   
   
   
-  /// Create WAV file from PCM data
+  /// Create WAV file from PCM data with correct header
   Uint8List _createWavFile(Uint8List pcmData) {
-    // WAV 헤더 생성 (44 bytes)
-    const channels = 1;
-    const sampleRate = 24000;
-    const bitsPerSample = 16;
-    
-    final byteRate = sampleRate * channels * bitsPerSample ~/ 8;
-    final blockAlign = channels * bitsPerSample ~/ 8;
+    final wavHeader = Uint8List(44);
     final dataSize = pcmData.length;
     final fileSize = dataSize + 36;
     
-    final header = BytesBuilder();
-    
     // RIFF header
-    header.add(utf8.encode('RIFF'));
-    header.add(_int32ToBytes(fileSize));
-    header.add(utf8.encode('WAVE'));
+    wavHeader.setRange(0, 4, 'RIFF'.codeUnits);
+    wavHeader.buffer.asByteData().setUint32(4, fileSize, Endian.little);
+    wavHeader.setRange(8, 12, 'WAVE'.codeUnits);
     
     // fmt chunk
-    header.add(utf8.encode('fmt '));
-    header.add(_int32ToBytes(16)); // fmt chunk size
-    header.add(_int16ToBytes(1)); // PCM format
-    header.add(_int16ToBytes(channels));
-    header.add(_int32ToBytes(sampleRate));
-    header.add(_int32ToBytes(byteRate));
-    header.add(_int16ToBytes(blockAlign));
-    header.add(_int16ToBytes(bitsPerSample));
+    wavHeader.setRange(12, 16, 'fmt '.codeUnits);
+    wavHeader.buffer.asByteData().setUint32(16, 16, Endian.little); // fmt chunk size
+    wavHeader.buffer.asByteData().setUint16(20, 1, Endian.little); // PCM format
+    wavHeader.buffer.asByteData().setUint16(22, channels, Endian.little);
+    wavHeader.buffer.asByteData().setUint32(24, sampleRate, Endian.little);
+    wavHeader.buffer.asByteData().setUint32(28, sampleRate * channels * bytesPerSample, Endian.little);
+    wavHeader.buffer.asByteData().setUint16(32, channels * bytesPerSample, Endian.little);
+    wavHeader.buffer.asByteData().setUint16(34, bytesPerSample * 8, Endian.little);
     
     // data chunk
-    header.add(utf8.encode('data'));
-    header.add(_int32ToBytes(dataSize));
-    header.add(pcmData);
+    wavHeader.setRange(36, 40, 'data'.codeUnits);
+    wavHeader.buffer.asByteData().setUint32(40, dataSize, Endian.little);
     
-    return header.toBytes();
+    // Combine header and PCM data
+    return Uint8List.fromList([...wavHeader, ...pcmData]);
   }
   
   Uint8List _int16ToBytes(int value) {
@@ -725,8 +721,10 @@ class EnhancedAudioStreamingService {
     
     // Timer 재시작
     _processTimer?.cancel();
-    _processTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      _processQueue();
+    _processTimer = Timer.periodic(const Duration(milliseconds: 300), (_) {
+      if (!_isPlaying && _audioQueue.isNotEmpty && !_isSpeaking) {
+        _processQueue();
+      }
     });
     
     // StreamController 재생성

@@ -152,10 +152,11 @@ IMPORTANT RULES:
 2. Ask follow-up questions to keep the conversation going
 3. Gently correct grammar mistakes by using the correct form naturally
 4. Be encouraging and supportive
-5. Speak at a moderate pace for language learners
+5. SPEAK SLOWLY AND CLEARLY - take your time with each word
 6. Use common, everyday vocabulary
-7. Use casual fillers like "um", "well" occasionally for naturalness''',
-        'voice': 'alloy',  // Most natural sounding voice
+7. Use casual fillers like "um", "well" occasionally for naturalness
+8. IMPORTANT: Speak slowly and clearly. Take your time with responses.''',
+        'voice': 'ash',  // Clearer voice for learners
         'input_audio_format': 'pcm16',
         'output_audio_format': 'pcm16',
         'input_audio_transcription': {
@@ -163,9 +164,9 @@ IMPORTANT RULES:
         },
         'turn_detection': {
           'type': 'server_vad',
-          'threshold': 0.5,  // Balanced threshold for learners
-          'prefix_padding_ms': 300,
-          'silence_duration_ms': 700,  // Natural pause for learners
+          'threshold': 0.8,  // Higher threshold to avoid interruptions
+          'prefix_padding_ms': 800,  // More padding for learners
+          'silence_duration_ms': 2000,  // Longer pause for learners to think
         },
         'temperature': 0.8,  // Good variety in responses
         'max_response_output_tokens': 150,  // Concise but complete responses
