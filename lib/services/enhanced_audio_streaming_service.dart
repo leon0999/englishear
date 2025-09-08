@@ -22,6 +22,7 @@ class EnhancedAudioStreamingService {
   Timer? _playbackTimer;
   bool _isProcessingAudio = false;  // 오디오 처리 중 플래그
   bool _isCurrentlyPlaying = false;  // 현재 재생 중 플래그
+  StreamSubscription? _playerCompleteSubscription;  // 재생 완료 리스너
   final OpenAIRealtimeWebSocket _websocket;
   
   StreamSubscription? _audioStreamSubscription;
@@ -76,6 +77,17 @@ class EnhancedAudioStreamingService {
     // AudioPlayer 초기화
     _audioPlayer = AudioPlayer();
     AppLogger.test('✅ AudioPlayer initialized');
+    
+    // 재생 완료 리스너 설정
+    _playerCompleteSubscription = _audioPlayer.onPlayerComplete.listen((_) {
+      AppLogger.info('🏁 [AUDIO] Playback completed, checking queue...');
+      // 다음 청크 자동 재생
+      if (_audioQueue.isNotEmpty && !_isSpeaking) {
+        _playNextInQueue();
+      } else {
+        _isCurrentlyPlaying = false;
+      }
+    });
     
     // StreamController 재초기화 (이미 생성자에서 초기화됨)
     if (_audioLevelController == null || _audioLevelController!.isClosed) {
@@ -174,27 +186,33 @@ class EnhancedAudioStreamingService {
   
   /// Add audio data to play (Swift와 같은 큐 방식)
   void addAudioData(Uint8List pcmData) {
-    AppLogger.info('🎯 [AUDIO TEST] addAudioData called with ${pcmData.length} bytes');
+    AppLogger.info('🎯 [AUDIO] addAudioData called with ${pcmData.length} bytes');
     
     if (!_isInitialized) {
-      AppLogger.error('❌ [AUDIO TEST] Player not initialized! _isInitialized: $_isInitialized');
+      AppLogger.error('❌ [AUDIO] Player not initialized! _isInitialized: $_isInitialized');
       return;
     }
     
     if (pcmData.isEmpty) {
-      AppLogger.error('❌ [AUDIO TEST] Empty PCM data received!');
+      AppLogger.error('❌ [AUDIO] Empty PCM data received!');
       return;
     }
     
-    AppLogger.info('🔊 [AUDIO TEST] Adding to queue: ${pcmData.length} bytes');
+    // 사용자가 말하고 있으면 오디오 스킵
+    if (_isSpeaking) {
+      AppLogger.warning('⚠️ [AUDIO] Skipping audio - user is speaking');
+      return;
+    }
     
-    // Swift처럼 큐에 추가
+    AppLogger.info('🔊 [AUDIO] Adding to queue: ${pcmData.length} bytes');
+    
+    // 큐에 추가
     _audioQueue.add(pcmData);
-    AppLogger.info('📦 [AUDIO TEST] Queue size: ${_audioQueue.length}');
+    AppLogger.info('📦 [AUDIO] Queue size: ${_audioQueue.length}');
     
-    // 재생 중이 아닐 때만 처리 시작
+    // 재생 중이 아닐 때만 재생 시작
     if (!_isCurrentlyPlaying) {
-      _startContinuousPlayback();
+      _playNextInQueue();
     }
     
     // Save AI audio for conversation history
@@ -227,6 +245,11 @@ class EnhancedAudioStreamingService {
       // Stop any AI audio playback when user starts speaking
       stopListening();
       _aiIsResponding = false;
+      
+      // 오디오 큐 클리어 및 재생 중지
+      _audioQueue.clear();
+      await _audioPlayer.stop();
+      _isCurrentlyPlaying = false;
       
       // Check microphone permission
       if (!await _recorder.hasPermission()) {
@@ -332,6 +355,10 @@ class EnhancedAudioStreamingService {
   void stopListening() {
     // 마이크 일시정지 - AI 오디오 재생 중단
     _isPlaying = false;
+    _audioQueue.clear();
+    _audioPlayer.stop();
+    _isCurrentlyPlaying = false;
+    AppLogger.info('🛑 [AUDIO] Audio playback stopped');
   }
   
   /// Resume listening (resume AI audio)
@@ -435,31 +462,21 @@ class EnhancedAudioStreamingService {
     }
   }
   
-  /// Start continuous playback
-  void _startContinuousPlayback() {
-    if (_audioQueue.isEmpty || _isCurrentlyPlaying) {
-      AppLogger.info('📦 [AUDIO] Skip playback - queue empty: ${_audioQueue.isEmpty}, playing: $_isCurrentlyPlaying');
+  /// Play next audio chunk from queue
+  Future<void> _playNextInQueue() async {
+    if (_audioQueue.isEmpty || _isSpeaking) {
+      _isCurrentlyPlaying = false;
+      AppLogger.info('📦 [AUDIO] Queue empty or user speaking - stopping playback');
       return;
     }
     
     _isCurrentlyPlaying = true;
-    AppLogger.info('🎵 [AUDIO] Starting continuous playback');
-    _playNextCombinedChunk();
-  }
-  
-  /// Play next combined chunk
-  Future<void> _playNextCombinedChunk() async {
-    if (_audioQueue.isEmpty) {
-      _isCurrentlyPlaying = false;
-      AppLogger.info('✅ [AUDIO] All audio chunks played');
-      return;
-    }
     
     try {
-      // 여러 청크를 합쳐서 한 번에 재생 (약 0.5초 분량)
+      // 여러 청크 합치기 (최대 3개, 약 0.3초)
       final chunks = <Uint8List>[];
       int totalSize = 0;
-      const maxChunks = 5; // 최대 5개 청크를 합침
+      const maxChunks = 3; // 더 짧게 해서 응답성 향상
       
       while (_audioQueue.isNotEmpty && chunks.length < maxChunks) {
         final chunk = _audioQueue.removeFirst();
@@ -467,7 +484,7 @@ class EnhancedAudioStreamingService {
         totalSize += chunk.length;
       }
       
-      if (chunks.isEmpty) {
+      if (totalSize == 0) {
         _isCurrentlyPlaying = false;
         return;
       }
@@ -480,28 +497,23 @@ class EnhancedAudioStreamingService {
         offset += chunk.length;
       }
       
-      AppLogger.info('🎵 [AUDIO] Playing combined chunk: $totalSize bytes from ${chunks.length} chunks, remaining: ${_audioQueue.length}');
+      AppLogger.info('🎵 [AUDIO] Playing: $totalSize bytes from ${chunks.length} chunks, queue: ${_audioQueue.length}');
       
-      // WAV 파일 생성 및 재생
-      await _playCombinedWavAudio(combinedData);
-      
-      // 재생 완료 후 다음 청크 재생 (연속적으로)
-      // 지연 없이 바로 다음 청크 재생
-      if (_audioQueue.isNotEmpty) {
-        _playNextCombinedChunk();
-      } else {
-        _isCurrentlyPlaying = false;
-        AppLogger.info('✅ [AUDIO] Playback queue completed');
-      }
+      // WAV 파일 생성 및 비동기 재생
+      await _playAudioAsync(combinedData);
       
     } catch (e) {
       AppLogger.error('❌ [AUDIO] Playback error: $e', e);
       _isCurrentlyPlaying = false;
+      // 에러 시 다음 청크 시도
+      if (_audioQueue.isNotEmpty && !_isSpeaking) {
+        Future.delayed(const Duration(milliseconds: 100), _playNextInQueue);
+      }
     }
   }
   
-  /// Play combined WAV audio
-  Future<void> _playCombinedWavAudio(Uint8List pcmData) async {
+  /// Play audio asynchronously (non-blocking)
+  Future<void> _playAudioAsync(Uint8List pcmData) async {
     try {
       // WAV 헤더 추가
       final wavData = _createWavFile(pcmData);
@@ -509,39 +521,42 @@ class EnhancedAudioStreamingService {
       // 임시 파일 생성
       final tempDir = await getTemporaryDirectory();
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final tempFile = File('${tempDir.path}/jupiter_combined_$timestamp.wav');
+      final tempFile = File('${tempDir.path}/jupiter_$timestamp.wav');
       
       await tempFile.writeAsBytes(wavData);
-      AppLogger.info('📁 [AUDIO] WAV file created: ${tempFile.path} (${wavData.length} bytes)');
       
-      // 재생 (이전 재생이 끝날 때까지 대기)
-      if (_audioPlayer.state == PlayerState.playing) {
-        AppLogger.info('⏸️ [AUDIO] Waiting for previous playback to complete...');
-        await _audioPlayer.onPlayerComplete.first;
+      // 이전 재생 중지 (사용자가 말하기 시작했을 때)
+      if (_isSpeaking) {
+        AppLogger.info('🛑 [AUDIO] User started speaking - stopping playback');
+        await _audioPlayer.stop();
+        _isCurrentlyPlaying = false;
+        return;
       }
       
-      // 새로운 재생 시작
+      // 비동기 재생 시작 (대기하지 않음)
       AppLogger.info('▶️ [AUDIO] Starting playback...');
-      await _audioPlayer.play(DeviceFileSource(tempFile.path));
+      _audioPlayer.play(DeviceFileSource(tempFile.path)).then((_) {
+        // 재생 시작됨
+      }).catchError((e) {
+        AppLogger.error('❌ [AUDIO] Play error: $e');
+      });
       
-      // 재생 완료 대기
-      await _audioPlayer.onPlayerComplete.first;
-      AppLogger.info('🏁 [AUDIO] Playback completed');
-      
-      // 파일 정리
-      try {
-        if (await tempFile.exists()) {
-          await tempFile.delete();
+      // 파일 정리는 나중에
+      Future.delayed(const Duration(seconds: 2), () async {
+        try {
+          if (await tempFile.exists()) {
+            await tempFile.delete();
+          }
+        } catch (e) {
+          // 무시
         }
-      } catch (e) {
-        AppLogger.warning('[AUDIO] Could not delete temp file: $e');
-      }
+      });
       
     } catch (e) {
-      AppLogger.error('❌ [AUDIO] WAV playback error', e);
-      throw e;
+      AppLogger.error('❌ [AUDIO] Async playback error', e);
     }
   }
+  
   
   
   /// Create WAV file from PCM data
@@ -770,6 +785,7 @@ class EnhancedAudioStreamingService {
     
     await _audioStreamSubscription?.cancel();
     await _audioDataSubscription?.cancel();
+    await _playerCompleteSubscription?.cancel();
     
     await _recorder.dispose();
     
