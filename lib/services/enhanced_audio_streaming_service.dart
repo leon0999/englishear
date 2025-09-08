@@ -16,12 +16,10 @@ class EnhancedAudioStreamingService {
   final AudioRecorder _recorder = AudioRecorder();
   late AudioPlayer _audioPlayer;
   
-  // Swift와 같은 오디오 큐 시스템
-  final Queue<Uint8List> _audioQueue = Queue<Uint8List>();
-  bool _isPlayingQueue = false;  // 큐 재생 상태
-  Timer? _playbackTimer;
-  bool _isProcessingAudio = false;  // 오디오 처리 중 플래그
-  bool _isCurrentlyPlaying = false;  // 현재 재생 중 플래그
+  // Timer 기반 오디오 큐 시스템
+  final List<Uint8List> _audioQueue = [];
+  bool _isPlaying = false;  // 현재 재생 중
+  Timer? _processTimer;  // 큐 처리 타이머 (100ms 주기)
   StreamSubscription? _playerCompleteSubscription;  // 재생 완료 리스너
   final OpenAIRealtimeWebSocket _websocket;
   
@@ -29,7 +27,6 @@ class EnhancedAudioStreamingService {
   StreamSubscription? _audioDataSubscription;
   
   bool _isRecording = false;
-  bool _isPlaying = false;
   bool _isSpeaking = false;
   bool _aiIsResponding = false;
   bool _isInitialized = false;
@@ -72,22 +69,19 @@ class EnhancedAudioStreamingService {
     _aiIsResponding = false;
     _isPlaying = false;
     _isRecording = false;
-    AppLogger.test('🔄 Initial state reset - _isSpeaking: false');
+    _audioQueue.clear();
+    AppLogger.test('🔄 Initial state reset - all flags set to false');
     
     // AudioPlayer 초기화
     _audioPlayer = AudioPlayer();
     AppLogger.test('✅ AudioPlayer initialized');
     
-    // 재생 완료 리스너 설정
-    _playerCompleteSubscription = _audioPlayer.onPlayerComplete.listen((_) {
-      AppLogger.info('🏁 [AUDIO] Playback completed, checking queue...');
-      // 다음 청크 자동 재생
-      if (_audioQueue.isNotEmpty && !_isSpeaking) {
-        _playNextInQueue();
-      } else {
-        _isCurrentlyPlaying = false;
-      }
+    // Timer 기반 큐 처리 시작 (100ms마다)
+    _processTimer?.cancel();
+    _processTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      _processQueue();
     });
+    AppLogger.test('✅ Process timer started (100ms interval)');
     
     // StreamController 재초기화 (이미 생성자에서 초기화됨)
     if (_audioLevelController == null || _audioLevelController!.isClosed) {
@@ -184,12 +178,10 @@ class EnhancedAudioStreamingService {
     });
   }
   
-  /// Add audio data to play (Swift와 같은 큐 방식)
+  /// Add audio data to play
   void addAudioData(Uint8List pcmData) {
-    AppLogger.info('🎯 [AUDIO] addAudioData called with ${pcmData.length} bytes');
-    
     if (!_isInitialized) {
-      AppLogger.error('❌ [AUDIO] Player not initialized! _isInitialized: $_isInitialized');
+      AppLogger.error('❌ [AUDIO] Player not initialized!');
       return;
     }
     
@@ -204,16 +196,9 @@ class EnhancedAudioStreamingService {
       return;
     }
     
-    AppLogger.info('🔊 [AUDIO] Adding to queue: ${pcmData.length} bytes');
-    
     // 큐에 추가
     _audioQueue.add(pcmData);
-    AppLogger.info('📦 [AUDIO] Queue size: ${_audioQueue.length}');
-    
-    // 재생 중이 아닐 때만 재생 시작
-    if (!_isCurrentlyPlaying) {
-      _playNextInQueue();
-    }
+    AppLogger.info('📦 [AUDIO] Added ${pcmData.length} bytes, queue size: ${_audioQueue.length}');
     
     // Save AI audio for conversation history
     conversationHistory.add(ConversationSegment(
@@ -354,11 +339,11 @@ class EnhancedAudioStreamingService {
   /// Stop listening (pause AI audio)
   void stopListening() {
     // 마이크 일시정지 - AI 오디오 재생 중단
-    _isPlaying = false;
+    AppLogger.info('🛑 [AUDIO] Stopping audio playback');
+    _isSpeaking = true;
     _audioQueue.clear();
     _audioPlayer.stop();
-    _isCurrentlyPlaying = false;
-    AppLogger.info('🛑 [AUDIO] Audio playback stopped');
+    _isPlaying = false;
   }
   
   /// Resume listening (resume AI audio)
@@ -462,58 +447,69 @@ class EnhancedAudioStreamingService {
     }
   }
   
-  /// Play next audio chunk from queue
-  Future<void> _playNextInQueue() async {
-    if (_audioQueue.isEmpty || _isSpeaking) {
-      _isCurrentlyPlaying = false;
-      AppLogger.info('📦 [AUDIO] Queue empty or user speaking - stopping playback');
+  /// Process audio queue (called by timer every 100ms)
+  Future<void> _processQueue() async {
+    // 이미 재생 중이거나 큐가 비었거나 사용자가 말하고 있으면 스킵
+    if (_isPlaying || _audioQueue.isEmpty || _isSpeaking) {
       return;
     }
     
-    _isCurrentlyPlaying = true;
+    // 최소 3개 청크가 쌍일 때까지 대기 (초기 버퍼링)
+    // 단, 큐가 비어가고 있지 않으면 즉시 처리
+    if (_audioQueue.length < 3 && _aiIsResponding) {
+      return;
+    }
+    
+    _isPlaying = true;
     
     try {
-      // 여러 청크 합치기 (최대 3개, 약 0.3초)
+      // 최대 5개 청크 합치기 (약 0.5초)
       final chunks = <Uint8List>[];
       int totalSize = 0;
-      const maxChunks = 3; // 더 짧게 해서 응답성 향상
+      final chunkCount = _audioQueue.length > 5 ? 5 : _audioQueue.length;
       
-      while (_audioQueue.isNotEmpty && chunks.length < maxChunks) {
-        final chunk = _audioQueue.removeFirst();
+      for (int i = 0; i < chunkCount; i++) {
+        if (_audioQueue.isEmpty) break;
+        final chunk = _audioQueue.removeAt(0);
         chunks.add(chunk);
         totalSize += chunk.length;
       }
       
-      if (totalSize == 0) {
-        _isCurrentlyPlaying = false;
+      if (totalSize == 0 || chunks.isEmpty) {
+        _isPlaying = false;
         return;
-      }
-      
-      // 합친 데이터로 WAV 생성
-      final combinedData = Uint8List(totalSize);
-      int offset = 0;
-      for (final chunk in chunks) {
-        combinedData.setRange(offset, offset + chunk.length, chunk);
-        offset += chunk.length;
       }
       
       AppLogger.info('🎵 [AUDIO] Playing: $totalSize bytes from ${chunks.length} chunks, queue: ${_audioQueue.length}');
       
-      // WAV 파일 생성 및 비동기 재생
-      await _playAudioAsync(combinedData);
+      // 합친 데이터로 WAV 생성
+      final combinedData = _combineChunks(chunks, totalSize);
+      await _playWavAsync(combinedData);
+      
+      // 큐에 많이 쌍였으면 지연 없이 재생
+      if (_audioQueue.length > 10) {
+        _isPlaying = false; // 즉시 다음 처리 허용
+      }
       
     } catch (e) {
       AppLogger.error('❌ [AUDIO] Playback error: $e', e);
-      _isCurrentlyPlaying = false;
-      // 에러 시 다음 청크 시도
-      if (_audioQueue.isNotEmpty && !_isSpeaking) {
-        Future.delayed(const Duration(milliseconds: 100), _playNextInQueue);
-      }
+      _isPlaying = false;
     }
   }
   
-  /// Play audio asynchronously (non-blocking)
-  Future<void> _playAudioAsync(Uint8List pcmData) async {
+  /// Combine multiple chunks into single data
+  Uint8List _combineChunks(List<Uint8List> chunks, int totalSize) {
+    final combined = Uint8List(totalSize);
+    int offset = 0;
+    for (final chunk in chunks) {
+      combined.setRange(offset, offset + chunk.length, chunk);
+      offset += chunk.length;
+    }
+    return combined;
+  }
+  
+  /// Play WAV audio asynchronously
+  Future<void> _playWavAsync(Uint8List pcmData) async {
     try {
       // WAV 헤더 추가
       final wavData = _createWavFile(pcmData);
@@ -525,23 +521,29 @@ class EnhancedAudioStreamingService {
       
       await tempFile.writeAsBytes(wavData);
       
-      // 이전 재생 중지 (사용자가 말하기 시작했을 때)
+      // 사용자가 말하기 시작했으면 중단
       if (_isSpeaking) {
-        AppLogger.info('🛑 [AUDIO] User started speaking - stopping playback');
-        await _audioPlayer.stop();
-        _isCurrentlyPlaying = false;
+        AppLogger.info('🛑 [AUDIO] User speaking - abort playback');
+        _isPlaying = false;
         return;
       }
       
-      // 비동기 재생 시작 (대기하지 않음)
+      // 비동기 재생 (완료를 기다리지 않음)
       AppLogger.info('▶️ [AUDIO] Starting playback...');
       _audioPlayer.play(DeviceFileSource(tempFile.path)).then((_) {
-        // 재생 시작됨
+        AppLogger.info('🏁 [AUDIO] Playback completed');
+        _isPlaying = false;
+        
+        // 큐에 많이 쌍였으면 즉시 다음 재생
+        if (_audioQueue.length > 10) {
+          _processQueue();
+        }
       }).catchError((e) {
         AppLogger.error('❌ [AUDIO] Play error: $e');
+        _isPlaying = false;
       });
       
-      // 파일 정리는 나중에
+      // 파일 정리는 2초 후
       Future.delayed(const Duration(seconds: 2), () async {
         try {
           if (await tempFile.exists()) {
@@ -553,7 +555,8 @@ class EnhancedAudioStreamingService {
       });
       
     } catch (e) {
-      AppLogger.error('❌ [AUDIO] Async playback error', e);
+      AppLogger.error('❌ [AUDIO] WAV playback error', e);
+      _isPlaying = false;
     }
   }
   
@@ -607,11 +610,7 @@ class EnhancedAudioStreamingService {
   /// Clear audio queue
   void clearQueue() {
     _audioQueue.clear();
-    _isPlayingQueue = false;
-    _isProcessingAudio = false;
-    _isCurrentlyPlaying = false;
-    _playbackTimer?.cancel();
-    _playbackTimer = null;
+    _isPlaying = false;
     AppLogger.info('🗑️ [AUDIO] Queue cleared');
   }
   
@@ -692,7 +691,6 @@ class EnhancedAudioStreamingService {
     _isSpeaking = false;
     _aiIsResponding = false;
     _isPlaying = false;
-    _isCurrentlyPlaying = false;
     
     // Clear audio queue
     clearQueue();
@@ -720,11 +718,16 @@ class EnhancedAudioStreamingService {
     _aiIsResponding = false;
     _isPlaying = false;
     _isRecording = false;
-    _isCurrentlyPlaying = false;
     AppLogger.test('🔄 Force state reset - all flags set to false');
     
     // 오디오 큐 클리어
     clearQueue();
+    
+    // Timer 재시작
+    _processTimer?.cancel();
+    _processTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      _processQueue();
+    });
     
     // StreamController 재생성
     try {
@@ -777,6 +780,7 @@ class EnhancedAudioStreamingService {
     AppLogger.info('Pausing audio streaming');
     _isPlaying = false;
     _audioPlayer.stop();
+    _processTimer?.cancel();
   }
   
   /// Dispose resources
@@ -786,6 +790,7 @@ class EnhancedAudioStreamingService {
     await _audioStreamSubscription?.cancel();
     await _audioDataSubscription?.cancel();
     await _playerCompleteSubscription?.cancel();
+    _processTimer?.cancel();
     
     await _recorder.dispose();
     
