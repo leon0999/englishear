@@ -19,9 +19,10 @@ class EnhancedAudioStreamingService {
   // Timer 기반 오디오 큐 시스템
   final List<Uint8List> _audioQueue = [];
   bool _isPlaying = false;  // 현재 재생 중
-  Timer? _processTimer;  // 큐 처리 타이머 (300ms 주기로 변경)
+  Timer? _processTimer;  // 큐 처리 타이머 (500ms 주기로 변경)
   StreamSubscription? _playerCompleteSubscription;  // 재생 완료 리스너
   final OpenAIRealtimeWebSocket _websocket;
+  Completer<void>? _playbackCompleter;  // 재생 완료 대기용
   
   // 24kHz, 16-bit PCM 설정
   static const int sampleRate = 24000;
@@ -33,6 +34,7 @@ class EnhancedAudioStreamingService {
   
   bool _isRecording = false;
   bool _isSpeaking = false;
+  bool _jupiterSpeaking = false;  // Jupiter AI 음성 재생 상태
   bool _aiIsResponding = false;
   bool _isInitialized = false;
   
@@ -79,18 +81,19 @@ class EnhancedAudioStreamingService {
     
     // AudioPlayer 초기화
     _audioPlayer = AudioPlayer();
-    // 음성 속도 조절 (0.8 = 20% 느리게)
-    await _audioPlayer.setPlaybackRate(0.8);
-    AppLogger.test('✅ AudioPlayer initialized with 0.8x playback rate');
+    await _audioPlayer.setReleaseMode(ReleaseMode.stop);
+    // 음성 속도 조절 (0.9 = 10% 느리게)
+    await _audioPlayer.setPlaybackRate(0.9);
+    AppLogger.test('✅ AudioPlayer initialized with 0.9x playback rate');
     
-    // Timer 기반 큐 처리 시작 (300ms마다로 변경)
+    // Timer 기반 큐 처리 시작 (500ms마다로 변경 - 더 안정적)
     _processTimer?.cancel();
-    _processTimer = Timer.periodic(const Duration(milliseconds: 300), (_) {
+    _processTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
       if (!_isPlaying && _audioQueue.isNotEmpty && !_isSpeaking) {
         _processQueue();
       }
     });
-    AppLogger.test('✅ Process timer started (300ms interval)');
+    AppLogger.test('✅ Process timer started (500ms interval)');
     
     // StreamController 재초기화 (이미 생성자에서 초기화됨)
     if (_audioLevelController == null || _audioLevelController!.isClosed) {
@@ -350,9 +353,11 @@ class EnhancedAudioStreamingService {
     // 마이크 일시정지 - AI 오디오 재생 중단
     AppLogger.info('🛑 [AUDIO] Stopping audio playback');
     _isSpeaking = true;
+    _jupiterSpeaking = false;
     _audioQueue.clear();
     _audioPlayer.stop();
     _isPlaying = false;
+    _playbackCompleter?.complete();
   }
   
   /// Resume listening (resume AI audio)
@@ -456,49 +461,60 @@ class EnhancedAudioStreamingService {
     }
   }
   
-  /// Process audio queue (called by timer every 300ms)
+  /// Process audio queue (called by timer every 500ms)
   Future<void> _processQueue() async {
     // 이미 재생 중이거나 큐가 비었거나 사용자가 말하고 있으면 스킵
     if (_isPlaying || _audioQueue.isEmpty || _isSpeaking) {
       return;
     }
     
-    // 최소 5개 청크가 모일 때까지 대기 (충분한 버퍼링)
-    if (_audioQueue.length < 5) {
+    // 최소 8개 청크가 모일 때까지 대기 (충분한 버퍼링)
+    if (_audioQueue.length < 8 && _aiIsResponding) {
       return;
     }
     
     _isPlaying = true;
+    _jupiterSpeaking = true;  // Jupiter 음성 재생 시작
+    _playbackCompleter = Completer<void>();
     
     try {
-      // 최대 10개 청크 합치기 (약 1초 분량)
-      int chunksToProcess = _audioQueue.length > 10 ? 10 : _audioQueue.length;
-      final chunks = <Uint8List>[];
-      int totalSize = 0;
+      // 전체 큐 처리 (끊김 없이)
+      final allChunks = List<Uint8List>.from(_audioQueue);
+      _audioQueue.clear();
       
-      for (int i = 0; i < chunksToProcess; i++) {
-        if (_audioQueue.isEmpty) break;
-        final chunk = _audioQueue.removeAt(0);
-        chunks.add(chunk);
+      int totalSize = 0;
+      for (final chunk in allChunks) {
         totalSize += chunk.length;
       }
       
-      if (totalSize == 0 || chunks.isEmpty) {
+      if (totalSize == 0 || allChunks.isEmpty) {
         _isPlaying = false;
+        _jupiterSpeaking = false;
         return;
       }
       
-      AppLogger.info('🎵 [AUDIO] Playing: $totalSize bytes from ${chunks.length} chunks, remaining queue: ${_audioQueue.length}');
+      AppLogger.info('🎵 [AUDIO] Playing: $totalSize bytes from ${allChunks.length} chunks');
       
-      // PCM 데이터 합치기
-      final combinedData = _combineChunks(chunks, totalSize);
+      // 모든 청크를 하나로 합치기
+      final combinedData = Uint8List(totalSize);
+      int offset = 0;
+      for (final chunk in allChunks) {
+        combinedData.setRange(offset, offset + chunk.length, chunk);
+        offset += chunk.length;
+      }
+      
+      // 페이드 인/아웃 적용으로 부드러운 전환
+      _applyFadeInOut(combinedData);
       
       // WAV 파일 생성 및 재생
       await _playWavWithProperTiming(combinedData);
       
     } catch (e) {
       AppLogger.error('❌ [AUDIO] Playback error: $e', e);
+    } finally {
       _isPlaying = false;
+      _jupiterSpeaking = false;  // Jupiter 음성 재생 종료
+      _playbackCompleter?.complete();
     }
   }
   
@@ -529,24 +545,26 @@ class EnhancedAudioStreamingService {
       // 사용자가 말하기 시작했으면 중단
       if (_isSpeaking) {
         AppLogger.info('🛑 [AUDIO] User speaking - abort playback');
-        _isPlaying = false;
         await tempFile.delete();
         return;
       }
       
-      // 재생 시작
       AppLogger.info('▶️ [AUDIO] Starting playback...');
+      
+      // 재생 완료 리스너 설정
+      final completer = Completer<void>();
+      StreamSubscription? subscription;
+      
+      subscription = _audioPlayer.onPlayerComplete.listen((_) {
+        completer.complete();
+        subscription?.cancel();
+      });
+      
+      // 재생 시작
       await _audioPlayer.play(DeviceFileSource(tempFile.path));
       
-      // 실제 오디오 길이 계산 (밀리초)
-      final durationMs = (pcmData.length / (sampleRate * bytesPerSample * channels)) * 1000;
-      // 재생 속도 0.8 보정
-      final adjustedDurationMs = durationMs / 0.8;
-      
-      AppLogger.info('⏱️ [AUDIO] Duration: ${durationMs.toInt()}ms, Adjusted: ${adjustedDurationMs.toInt()}ms');
-      
-      // 계산된 시간만큼 대기
-      await Future.delayed(Duration(milliseconds: adjustedDurationMs.toInt()));
+      // 재생 완료 대기
+      await completer.future;
       
       AppLogger.info('🏁 [AUDIO] Playback completed');
       
@@ -559,8 +577,6 @@ class EnhancedAudioStreamingService {
       
     } catch (e) {
       AppLogger.error('❌ [AUDIO] WAV playback error', e);
-    } finally {
-      _isPlaying = false;
     }
   }
   
@@ -601,6 +617,31 @@ class EnhancedAudioStreamingService {
   
   Uint8List _int32ToBytes(int value) {
     return Uint8List(4)..buffer.asByteData().setInt32(0, value, Endian.little);
+  }
+  
+  /// Apply fade in/out for smooth transitions
+  void _applyFadeInOut(Uint8List data) {
+    if (data.length < 960) return; // Too short for fade
+    
+    final fadeLength = 480; // 10ms at 24kHz
+    final dataView = data.buffer.asByteData();
+    
+    // Fade in
+    for (int i = 0; i < fadeLength && i * 2 < data.length; i++) {
+      final factor = i / fadeLength;
+      final sample = dataView.getInt16(i * 2, Endian.little);
+      dataView.setInt16(i * 2, (sample * factor).toInt(), Endian.little);
+    }
+    
+    // Fade out
+    final startFadeOut = data.length - (fadeLength * 2);
+    if (startFadeOut > 0) {
+      for (int i = 0; i < fadeLength && startFadeOut + i * 2 < data.length - 1; i++) {
+        final factor = 1.0 - (i / fadeLength);
+        final sample = dataView.getInt16(startFadeOut + i * 2, Endian.little);
+        dataView.setInt16(startFadeOut + i * 2, (sample * factor).toInt(), Endian.little);
+      }
+    }
   }
   
   /// Clear audio queue
@@ -673,6 +714,16 @@ class EnhancedAudioStreamingService {
   /// Check if user is speaking
   bool get isSpeaking => _isSpeaking;
   
+  /// Check if Jupiter is speaking
+  bool get isJupiterSpeaking => _jupiterSpeaking;
+  
+  /// Wait for playback completion
+  Future<void> waitForCompletion() async {
+    if (_playbackCompleter != null && !_playbackCompleter!.isCompleted) {
+      await _playbackCompleter!.future;
+    }
+  }
+  
   /// Reset speaking state (called from app lifecycle)
   void resetSpeakingState() {
     AppLogger.test('Resetting speaking state');
@@ -685,8 +736,10 @@ class EnhancedAudioStreamingService {
   Future<void> resetState() async {
     AppLogger.test('Resetting audio service state');
     _isSpeaking = false;
+    _jupiterSpeaking = false;
     _aiIsResponding = false;
     _isPlaying = false;
+    _playbackCompleter?.complete();
     
     // Clear audio queue
     clearQueue();
