@@ -36,13 +36,18 @@ class EnhancedAudioStreamingService {
   final List<ConversationSegment> conversationHistory = [];
   
   // Stream controllers
-  late StreamController<double> _audioLevelController;
-  late StreamController<ConversationState> _conversationStateController;
+  StreamController<double>? _audioLevelController;
+  StreamController<ConversationState>? _conversationStateController;
   
-  Stream<double> get audioLevelStream => _audioLevelController.stream;
-  Stream<ConversationState> get conversationStateStream => _conversationStateController.stream;
+  Stream<double> get audioLevelStream => _audioLevelController?.stream ?? const Stream.empty();
+  Stream<ConversationState> get conversationStateStream => _conversationStateController?.stream ?? const Stream.empty();
   
   EnhancedAudioStreamingService(this._websocket) {
+    // Initialize StreamControllers in constructor
+    _audioLevelController = StreamController<double>.broadcast();
+    _conversationStateController = StreamController<ConversationState>.broadcast();
+    AppLogger.test('StreamControllers initialized in constructor');
+    
     _setupListeners();
     
     // Set up callback for response completion
@@ -71,10 +76,15 @@ class EnhancedAudioStreamingService {
     _audioPlayer = AudioPlayer();
     AppLogger.test('✅ AudioPlayer initialized');
     
-    // StreamController 초기화
-    _audioLevelController = StreamController<double>.broadcast();
-    _conversationStateController = StreamController<ConversationState>.broadcast();
-    AppLogger.test('✅ StreamControllers initialized');
+    // StreamController 재초기화 (이미 생성자에서 초기화됨)
+    if (_audioLevelController == null || _audioLevelController!.isClosed) {
+      _audioLevelController = StreamController<double>.broadcast();
+      AppLogger.test('✅ AudioLevelController recreated');
+    }
+    if (_conversationStateController == null || _conversationStateController!.isClosed) {
+      _conversationStateController = StreamController<ConversationState>.broadcast();
+      AppLogger.test('✅ ConversationStateController recreated');
+    }
     
     try {
       // 오디오 세션 설정 - speech 설정 사용 (더 안정적)
@@ -297,7 +307,9 @@ class EnhancedAudioStreamingService {
       _isRecording = false;
       
       // Reset audio level
-      _audioLevelController.add(0.0);
+      if (_audioLevelController != null && !_audioLevelController!.isClosed) {
+        _audioLevelController!.add(0.0);
+      }
       
       // Commit audio and request response from Realtime API
       _websocket.commitAudioAndRespond();
@@ -578,17 +590,25 @@ class EnhancedAudioStreamingService {
     double average = sum / (chunk.length / 2);
     double level = (average / 32768).clamp(0.0, 1.0);
     
-    _audioLevelController.add(level);
+    // null 체크 추가
+    if (_audioLevelController != null && !_audioLevelController!.isClosed) {
+      _audioLevelController!.add(level);
+    }
   }
   
   /// Update conversation state
   void _updateConversationState() {
-    _conversationStateController.add(ConversationState(
-      isUserSpeaking: _isSpeaking,
-      isAiResponding: _aiIsResponding,
-      isRecording: _isRecording,
-      isPlaying: _isPlaying,
-    ));
+    // null 체크 추가
+    if (_conversationStateController != null && !_conversationStateController!.isClosed) {
+      _conversationStateController!.add(ConversationState(
+        isUserSpeaking: _isSpeaking,
+        isAiResponding: _aiIsResponding,
+        isRecording: _isRecording,
+        isPlaying: _isPlaying,
+      ));
+    } else {
+      AppLogger.warning('ConversationStateController is null or closed');
+    }
   }
   
   /// Toggle recording (press to talk)
@@ -661,8 +681,8 @@ class EnhancedAudioStreamingService {
     // StreamController 재생성
     try {
       // 기존 컨트롤러 정리
-      await _audioLevelController.close();
-      await _conversationStateController.close();
+      await _audioLevelController?.close();
+      await _conversationStateController?.close();
     } catch (e) {
       AppLogger.warning('Could not close existing controllers: $e');
     }
@@ -713,8 +733,8 @@ class EnhancedAudioStreamingService {
     await _audioPlayer.stop();
     await _audioPlayer.dispose();
     
-    await _audioLevelController.close();
-    await _conversationStateController.close();
+    await _audioLevelController?.close();
+    await _conversationStateController?.close();
   }
 }
 

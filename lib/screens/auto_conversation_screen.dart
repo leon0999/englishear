@@ -22,9 +22,10 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   
   // Core Services
-  late final OpenAIRealtimeWebSocket _websocket;
-  late final EnhancedAudioStreamingService _audioService;
-  late final ConversationImproverService _improverService;
+  OpenAIRealtimeWebSocket? _websocket;
+  EnhancedAudioStreamingService? _audioService;
+  ConversationImproverService? _improverService;
+  bool _isServicesInitialized = false;
   
   // Animation Controllers
   late AnimationController _pulseController;
@@ -56,8 +57,26 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     WidgetsBinding.instance.addObserver(this);  // Add lifecycle observer
     _setupAnimations();
     
-    // Immediately check and initialize
-    _checkAndInitialize();
+    // Initialize only once
+    _initializeOnce();
+  }
+  
+  Future<void> _initializeOnce() async {
+    if (_isServicesInitialized) {
+      AppLogger.info('Services already initialized, skipping...');
+      return;
+    }
+    
+    try {
+      await _checkAndInitialize();
+    } catch (e) {
+      AppLogger.error('Initialization error in _initializeOnce', e);
+      // Retry after delay
+      await Future.delayed(const Duration(seconds: 3));
+      if (mounted && !_isServicesInitialized) {
+        _initializeOnce();
+      }
+    }
   }
   
   @override
@@ -105,16 +124,20 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     AppLogger.test('🔄 Force resetting all states...');
     
     // Audio service 상태 리셋
-    _audioService.resetSpeakingState();
-    AppLogger.test('✅ Audio service speaking state reset');
+    if (_audioService != null) {
+      _audioService!.resetSpeakingState();
+      AppLogger.test('✅ Audio service speaking state reset');
+    }
     
     // WebSocket 응답 상태 리셋
-    _websocket.resetResponseState();
-    AppLogger.test('✅ WebSocket response state reset');
+    if (_websocket != null) {
+      _websocket!.resetResponseState();
+      AppLogger.test('✅ WebSocket response state reset');
+    }
     
     // 오디오 버퍼 클리어
     try {
-      _websocket.sendEvent({
+      _websocket?.sendEvent({
         'type': 'input_audio_buffer.clear'
       });
       AppLogger.test('✅ Audio buffer clear requested');
@@ -123,9 +146,9 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     }
     
     // 3. WebSocket 연결 상태 확인 및 재연결
-    if (!_websocket.isConnected) {
+    if (_websocket == null || !_websocket!.isConnected) {
       AppLogger.info('🔄 WebSocket disconnected - reconnecting...');
-      _websocket.disconnect();  // void 반환이므로 await 제거
+      _websocket?.disconnect();  // void 반환이므로 await 제거
       await Future.delayed(const Duration(milliseconds: 500));
       await _initializeAndStart();
     } else {
@@ -133,7 +156,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       
       // 연결은 되어 있지만 상태만 리셋
       AppLogger.test('🎯 WebSocket connected - resetting audio service state only');
-      await _audioService.reinitialize();
+      await _audioService?.reinitialize();
     }
     
     // 4. 마이크 권한 재확인
@@ -147,24 +170,28 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     
     // 1. 오디오 녹음 중지
     if (_audioService != null) {
-      _audioService.stopListening();
+      _audioService!.stopListening();
       AppLogger.test('🛑 Audio recording stopped');
       
       // 사용자 말하기 상태 리셋
-      _audioService.resetSpeakingState();
+      _audioService!.resetSpeakingState();
       AppLogger.test('✅ Speaking state reset');
     }
     
     // 2. WebSocket 상태 리셋
     if (_websocket != null) {
-      _websocket.resetResponseState();
+      _websocket!.resetResponseState();
       AppLogger.test('✅ WebSocket response state reset');
       
       // 오디오 버퍼 클리어
-      _websocket.sendEvent({
-        'type': 'input_audio_buffer.clear'
-      });
-      AppLogger.test('✅ Audio buffer clear requested on pause');
+      try {
+        _websocket!.sendEvent({
+          'type': 'input_audio_buffer.clear'
+        });
+        AppLogger.test('✅ Audio buffer clear requested on pause');
+      } catch (e) {
+        AppLogger.warning('Could not clear audio buffer on pause: $e');
+      }
     }
     
     // 3. 대화 상태 업데이트
@@ -239,15 +266,28 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     });
     
     try {
-      // Initialize services
-      _websocket = OpenAIRealtimeWebSocket();
-      _audioService = EnhancedAudioStreamingService(_websocket);
-      _improverService = ConversationImproverService();
+      // Initialize services (only if not already initialized)
+      if (_websocket == null) {
+        _websocket = OpenAIRealtimeWebSocket();
+        AppLogger.info('✅ WebSocket created');
+      }
+      
+      if (_audioService == null) {
+        _audioService = EnhancedAudioStreamingService(_websocket!);
+        AppLogger.info('✅ AudioService created');
+      }
+      
+      if (_improverService == null) {
+        _improverService = ConversationImproverService();
+        AppLogger.info('✅ ImproverService created');
+      }
+      
+      _isServicesInitialized = true;
       
       AppLogger.info('✅ Services created');
       
       // Set up Jupiter AI callbacks
-      _websocket.onAiTranscriptUpdate = (transcript) {
+      _websocket!.onAiTranscriptUpdate = (transcript) {
         if (mounted) {
           setState(() {
             _jupiterTranscript = transcript;
@@ -255,7 +295,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
         }
       };
       
-      _websocket.onSpeakingStateChange = (state) {
+      _websocket!.onSpeakingStateChange = (state) {
         if (mounted) {
           setState(() {
             _speakingState = state;
@@ -265,7 +305,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       
       // Listen to connection status
       _subscriptions.add(
-        _websocket.connectionStatusStream.listen((isConnected) {
+        _websocket!.connectionStatusStream.listen((isConnected) {
           AppLogger.info('🔌 Connection status changed: $isConnected');
           if (mounted) {
             setState(() {
@@ -281,7 +321,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       
       // Listen to audio level changes
       _subscriptions.add(
-        _audioService.audioLevelStream.listen((level) {
+        _audioService!.audioLevelStream.listen((level) {
           if (mounted) {
             setState(() {
               _audioLevel = level;
@@ -293,11 +333,11 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       
       // Listen to conversation state
       _subscriptions.add(
-        _audioService.conversationStateStream.listen((state) {
+        _audioService!.conversationStateStream.listen((state) {
           if (mounted) {
             setState(() {
               _conversationState = state;
-              _hasConversationHistory = _audioService.getConversationHistory().isNotEmpty;
+              _hasConversationHistory = _audioService!.getConversationHistory().isNotEmpty;
             });
           }
         }),
@@ -305,11 +345,11 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       
       // Connect to WebSocket
       AppLogger.info('🔗 Connecting to OpenAI Realtime API...');
-      await _websocket.connect();
+      await _websocket!.connect();
       
       // Initialize audio service
       AppLogger.info('🎤 Initializing audio service...');
-      await _audioService.initialize();
+      await _audioService!.initialize();
       
       setState(() {
         _isInitializing = false;
@@ -323,8 +363,8 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
           AppLogger.test('🎯 Starting Jupiter greeting after state reset');
           
           // 상태 리셋
-          _audioService.resetSpeakingState();
-          _websocket.resetResponseState();
+          _audioService!.resetSpeakingState();
+          _websocket!.resetResponseState();
           AppLogger.test('✅ State reset before Jupiter greeting');
           
           // Jupiter 인사 시작
@@ -469,7 +509,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
         AppLogger.info('🤖 Jupiter starting conversation...');
         
         // Start conversation with greeting
-        _websocket.sendEvent({
+        _websocket!.sendEvent({
           'type': 'conversation.item.create',
           'item': {
             'type': 'message',
@@ -482,7 +522,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
         });
         
         // Request response
-        _websocket.sendEvent({
+        _websocket!.sendEvent({
           'type': 'response.create'
         });
       }
@@ -498,8 +538,12 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     await Future.delayed(const Duration(seconds: 3));
     if (!_isConnected && mounted) {
       try {
-        await _websocket.connect();
-        await _audioService.initialize();
+        if (_websocket != null) {
+          await _websocket!.connect();
+        }
+        if (_audioService != null) {
+          await _audioService!.initialize();
+        }
       } catch (e) {
         AppLogger.error('Reconnection failed', e);
       }
@@ -533,7 +577,12 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
   }
   
   Future<void> _upgradeReplay() async {
-    final history = _audioService.getConversationHistory();
+    if (_audioService == null) {
+      _showError('Audio service not initialized');
+      return;
+    }
+    
+    final history = _audioService!.getConversationHistory();
     
     if (history.isEmpty) {
       _showError('No conversation to improve');
@@ -545,7 +594,12 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
     });
     
     try {
-      final improved = await _improverService.upgradeReplay(history);
+      if (_improverService == null) {
+        _showError('Improver service not initialized');
+        return;
+      }
+      
+      final improved = await _improverService!.upgradeReplay(history);
       
       // Show improvements
       if (mounted) {
@@ -553,7 +607,7 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       }
       
       // Play improved conversation
-      await _improverService.playImprovedConversation(improved);
+      await _improverService!.playImprovedConversation(improved);
       
     } catch (e) {
       AppLogger.error('Failed to upgrade replay', e);
@@ -1036,9 +1090,15 @@ class _AutoConversationScreenState extends State<AutoConversationScreen>
       sub.cancel();
     }
     
-    _audioService.dispose();
-    _websocket.disconnect();
-    _improverService.dispose();
+    if (_audioService != null) {
+      _audioService!.dispose();
+    }
+    if (_websocket != null) {
+      _websocket!.disconnect();
+    }
+    if (_improverService != null) {
+      _improverService!.dispose();
+    }
     
     super.dispose();
   }
