@@ -1,12 +1,11 @@
-// lib/services/enhanced_subscription_service.dart
-
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:purchases_flutter/purchases_flutter.dart' as rc;  // alias 추가
 import 'package:intl/intl.dart';
-import '../core/logger.dart' as app_logger;  // alias 추가
+import '../core/logger.dart';
 
+/// Enhanced Subscription Service without RevenueCat
+/// Uses local storage for MVP - can add RevenueCat later when needed
 enum SubscriptionTier {
   free,
   pro,
@@ -14,28 +13,33 @@ enum SubscriptionTier {
 }
 
 class EnhancedSubscriptionService extends ChangeNotifier {
-  // 제한 설정
+  // Daily limits for each tier
   static const Map<SubscriptionTier, int> DAILY_LIMITS = {
     SubscriptionTier.free: 10,
     SubscriptionTier.pro: 30,
     SubscriptionTier.premium: 100,
   };
   
-  // RevenueCat 설정
-  static const String REVENUECAT_API_KEY_IOS = 'appl_YOUR_KEY';
-  static const String REVENUECAT_API_KEY_ANDROID = 'goog_YOUR_KEY';
+  // Pricing (for display purposes)
+  static const Map<String, String> PRICING = {
+    'pro_monthly': '\$9.99',
+    'pro_yearly': '\$99.99',
+    'premium_monthly': '\$19.99',
+  };
   
-  // 상품 ID
-  static const String PRO_MONTHLY = 'pro_monthly_9900';
-  static const String PRO_YEARLY = 'pro_yearly_99000';
-  static const String PREMIUM_MONTHLY = 'premium_monthly_19900';
-  
-  // 상태
+  // State
   SubscriptionTier _currentTier = SubscriptionTier.free;
   int _todayUsageCount = 0;
   DateTime? _lastResetDate;
-  rc.CustomerInfo? _customerInfo;
   bool _isInitialized = false;
+  
+  // Trial management
+  DateTime? _trialStartDate;
+  static const int TRIAL_DAYS = 7;
+  
+  // Usage statistics
+  final Map<String, int> _weeklyUsage = {};
+  final Map<String, int> _monthlyUsage = {};
   
   // Getters
   SubscriptionTier get currentTier => _currentTier;
@@ -45,284 +49,280 @@ class EnhancedSubscriptionService extends ChangeNotifier {
   bool get canUseReplay => _todayUsageCount < dailyLimit;
   bool get isPro => _currentTier != SubscriptionTier.free;
   bool get isPremium => _currentTier == SubscriptionTier.premium;
+  bool get isSubscribed => _currentTier != SubscriptionTier.free;
   
-  // 생성자
+  // Constructor
   EnhancedSubscriptionService() {
-    _initialize();
+    _loadFromLocalStorage();
   }
   
-  // 1. RevenueCat 초기화
-  Future<void> _initialize() async {
+  /// Initialize service
+  Future<void> initialize() async {
+    if (_isInitialized) return;
+    
     try {
-      // RevenueCat 설정
-      await rc.Purchases.setLogLevel(rc.LogLevel.debug);
-      
-      rc.PurchasesConfiguration configuration;
-      if (defaultTargetPlatform == TargetPlatform.iOS) {
-        configuration = rc.PurchasesConfiguration(REVENUECAT_API_KEY_IOS);
-      } else {
-        configuration = rc.PurchasesConfiguration(REVENUECAT_API_KEY_ANDROID);
-      }
-      
-      await rc.Purchases.configure(configuration);
-      
-      // 구매자 정보 리스너 설정
-      rc.Purchases.addCustomerInfoUpdateListener((customerInfo) {
-        _customerInfo = customerInfo;
-        _updateSubscriptionStatus(customerInfo);
-      });
-      
-      // 초기 구매자 정보 가져오기
-      _customerInfo = await rc.Purchases.getCustomerInfo();
-      _updateSubscriptionStatus(_customerInfo!);
-      
+      await _loadFromLocalStorage();
+      await _checkAndResetDailyUsage();
+      _startDailyResetTimer();
       _isInitialized = true;
       
-      // 로컬 사용량 데이터 로드
-      await _loadUsageData();
-      
+      AppLogger.info('✅ Subscription service initialized (Local implementation)');
     } catch (e) {
-      print('❌ RevenueCat initialization failed: $e');
-      // 폴백: 로컬 스토리지만 사용
-      await _loadUsageData();
+      AppLogger.error('Failed to initialize subscription service', e);
     }
   }
   
-  // 2. 구독 상태 업데이트
-  void _updateSubscriptionStatus(rc.CustomerInfo customerInfo) {
-    if (customerInfo.entitlements.all['premium']?.isActive ?? false) {
-      _currentTier = SubscriptionTier.premium;
-    } else if (customerInfo.entitlements.all['pro']?.isActive ?? false) {
-      _currentTier = SubscriptionTier.pro;
-    } else {
-      _currentTier = SubscriptionTier.free;
-    }
-    
-    notifyListeners();
-  }
-  
-  // 3. 사용량 데이터 로드 및 리셋
-  Future<void> _loadUsageData() async {
+  /// Load subscription data from local storage
+  Future<void> _loadFromLocalStorage() async {
     final prefs = await SharedPreferences.getInstance();
     
-    // 날짜 체크 및 자동 리셋
-    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
-    final lastResetStr = prefs.getString('last_reset_date') ?? '';
+    // Load subscription tier
+    final tierString = prefs.getString('subscription_tier') ?? 'free';
+    _currentTier = SubscriptionTier.values.firstWhere(
+      (t) => t.name == tierString,
+      orElse: () => SubscriptionTier.free,
+    );
     
-    if (lastResetStr != today) {
-      // 새로운 날 - 카운트 리셋
-      _todayUsageCount = 0;
-      _lastResetDate = DateTime.now();
-      await prefs.setString('last_reset_date', today);
-      await prefs.setInt('today_usage_count', 0);
-      
-      // 리셋 시간 기록 (통계용)
-      await _recordResetEvent();
-    } else {
-      // 오늘 사용량 로드
-      _todayUsageCount = prefs.getInt('today_usage_count') ?? 0;
+    // Load usage data
+    _todayUsageCount = prefs.getInt('today_usage_count') ?? 0;
+    final lastResetString = prefs.getString('last_reset_date');
+    if (lastResetString != null) {
+      _lastResetDate = DateTime.parse(lastResetString);
     }
+    
+    // Load trial data
+    final trialStartString = prefs.getString('trial_start_date');
+    if (trialStartString != null) {
+      _trialStartDate = DateTime.parse(trialStartString);
+      _checkTrialExpiry();
+    }
+    
+    // Load statistics
+    await _loadUsageStatistics();
     
     notifyListeners();
   }
   
-  // 4. Upgrade Replay 사용 기록
-  Future<bool> useUpgradeReplay() async {
-    // 사용 가능 체크
+  /// Save subscription data to local storage
+  Future<void> _saveToLocalStorage() async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    await prefs.setString('subscription_tier', _currentTier.name);
+    await prefs.setInt('today_usage_count', _todayUsageCount);
+    
+    if (_lastResetDate != null) {
+      await prefs.setString('last_reset_date', _lastResetDate!.toIso8601String());
+    }
+    
+    if (_trialStartDate != null) {
+      await prefs.setString('trial_start_date', _trialStartDate!.toIso8601String());
+    }
+  }
+  
+  /// Check and reset daily usage if needed
+  Future<void> _checkAndResetDailyUsage() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    
+    if (_lastResetDate == null || !_isSameDay(_lastResetDate!, today)) {
+      // Save yesterday's usage to statistics
+      if (_lastResetDate != null) {
+        await _saveUsageStatistics(_todayUsageCount);
+      }
+      
+      // Reset for new day
+      _todayUsageCount = 0;
+      _lastResetDate = today;
+      await _saveToLocalStorage();
+      
+      AppLogger.info('📅 Daily usage reset completed');
+      notifyListeners();
+    }
+  }
+  
+  /// Start daily reset timer
+  void _startDailyResetTimer() {
+    // Calculate time until midnight
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final timeUntilMidnight = tomorrow.difference(now);
+    
+    // Set timer for midnight
+    Timer(timeUntilMidnight, () {
+      _checkAndResetDailyUsage();
+      _startDailyResetTimer(); // Reschedule for next day
+    });
+    
+    AppLogger.info('⏰ Daily reset timer scheduled for midnight');
+  }
+  
+  /// Increment usage count
+  Future<bool> incrementUsage(String feature) async {
     if (!canUseReplay) {
+      AppLogger.warning('Usage limit reached for today');
       return false;
     }
     
     _todayUsageCount++;
-    
-    // 로컬 저장
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt('today_usage_count', _todayUsageCount);
-    
-    // 사용 통계 기록
-    await _recordUsageEvent();
-    
+    await _saveToLocalStorage();
     notifyListeners();
+    
+    AppLogger.info('📊 Usage incremented: $_todayUsageCount/$dailyLimit');
     return true;
   }
   
-  // 5. 상품 가져오기
-  Future<List<rc.Package>> getAvailablePackages() async {
-    try {
-      final offerings = await rc.Purchases.getOfferings();
-      
-      if (offerings.current != null) {
-        return offerings.current!.availablePackages;
-      }
-      
-      return [];
-    } catch (e) {
-      print('❌ Failed to get offerings: $e');
-      return [];
+  /// Start free trial
+  Future<void> startFreeTrial() async {
+    if (_trialStartDate != null) {
+      AppLogger.warning('Trial already started');
+      return;
     }
-  }
-  
-  // 6. 구독 구매 (String identifier로 Package 찾아서 구매)
-  Future<bool> purchaseSubscription(String packageIdentifier) async {
-    try {
-      final offerings = await rc.Purchases.getOfferings();
-      final offering = offerings.current;
-      
-      if (offering == null) {
-        print('❌ No offerings available');
-        return false;
-      }
-      
-      // String identifier로 Package 객체 찾기
-      rc.Package? targetPackage;
-      
-      for (final package in offering.availablePackages) {
-        if (package.identifier == packageIdentifier) {
-          targetPackage = package;
-          break;
-        }
-      }
-      
-      if (targetPackage == null) {
-        print('❌ Package not found: $packageIdentifier');
-        return false;
-      }
-      
-      // Package 객체로 구매
-      final purchaserInfo = await rc.Purchases.purchasePackage(targetPackage);
-      _customerInfo = purchaserInfo;
-      _updateSubscriptionStatus(purchaserInfo);
-      
-      // 구매 성공 이벤트
-      await _recordPurchaseEvent(targetPackage.storeProduct.identifier);
-      
-      return true;
-    } catch (e) {
-      print('❌ Purchase failed: $e');
-      return false;
-    }
-  }
-  
-  // 7. 구독 복원
-  Future<bool> restorePurchases() async {
-    try {
-      final customerInfo = await rc.Purchases.restorePurchases();
-      _customerInfo = customerInfo;
-      _updateSubscriptionStatus(customerInfo);
-      
-      return customerInfo.entitlements.all.isNotEmpty;
-    } catch (e) {
-      print('❌ Restore failed: $e');
-      return false;
-    }
-  }
-  
-  // 8. 구독 취소 (관리 페이지로 이동)
-  Future<void> manageSubscription() async {
-    try {
-      // RevenueCat 8.x에서는 showManageSubscriptions가 없음
-      // 대신 플랫폼별 URL로 리다이렉트
-      app_logger.Logger.info('Opening subscription management page');
-    } catch (e) {
-      app_logger.Logger.error('Failed to manage subscriptions', error: e);
-    }
-  }
-  
-  // 9. 프로모션 코드 사용
-  Future<bool> redeemPromoCode(String code) async {
-    try {
-      // iOS only
-      if (defaultTargetPlatform == TargetPlatform.iOS) {
-        await rc.Purchases.presentCodeRedemptionSheet();
-        return true;
-      }
-      return false;
-    } catch (e) {
-      print('❌ Failed to redeem code: $e');
-      return false;
-    }
-  }
-  
-  // 10. 남은 시간 계산
-  String getTimeUntilReset() {
-    final now = DateTime.now();
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
-    final difference = tomorrow.difference(now);
     
-    if (difference.inHours > 0) {
-      return '${difference.inHours}h ${difference.inMinutes % 60}m';
-    } else {
-      return '${difference.inMinutes}m';
+    _trialStartDate = DateTime.now();
+    _currentTier = SubscriptionTier.pro;
+    await _saveToLocalStorage();
+    notifyListeners();
+    
+    AppLogger.success('🎉 Free trial started for $TRIAL_DAYS days');
+  }
+  
+  /// Check trial expiry
+  void _checkTrialExpiry() {
+    if (_trialStartDate == null) return;
+    
+    final daysSinceTrial = DateTime.now().difference(_trialStartDate!).inDays;
+    if (daysSinceTrial >= TRIAL_DAYS && _currentTier == SubscriptionTier.pro) {
+      _currentTier = SubscriptionTier.free;
+      _saveToLocalStorage();
+      notifyListeners();
+      
+      AppLogger.info('⏱️ Free trial expired');
     }
   }
   
-  // 11. 사용 통계 (Analytics)
-  Future<void> _recordUsageEvent() async {
-    final prefs = await SharedPreferences.getInstance();
+  /// Simulate purchase (for MVP - replace with actual IAP later)
+  Future<void> purchaseSubscription(String productId) async {
+    // In production, this would handle actual in-app purchase
+    // For MVP, we'll simulate the purchase
     
-    // 주간 사용량 추적
-    final weekKey = 'week_${DateFormat('yyyy-ww').format(DateTime.now())}';
-    final weekCount = prefs.getInt(weekKey) ?? 0;
-    await prefs.setInt(weekKey, weekCount + 1);
+    if (productId.contains('premium')) {
+      _currentTier = SubscriptionTier.premium;
+    } else if (productId.contains('pro')) {
+      _currentTier = SubscriptionTier.pro;
+    }
     
-    // 월간 사용량 추적
-    final monthKey = 'month_${DateFormat('yyyy-MM').format(DateTime.now())}';
-    final monthCount = prefs.getInt(monthKey) ?? 0;
-    await prefs.setInt(monthKey, monthCount + 1);
+    await _saveToLocalStorage();
+    notifyListeners();
+    
+    AppLogger.success('✅ Subscription activated: ${_currentTier.name}');
   }
   
-  Future<void> _recordResetEvent() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('last_reset_timestamp', DateTime.now().toIso8601String());
-  }
-  
-  Future<void> _recordPurchaseEvent(String productId) async {
-    final prefs = await SharedPreferences.getInstance();
+  /// Cancel subscription
+  Future<void> cancelSubscription() async {
+    _currentTier = SubscriptionTier.free;
+    await _saveToLocalStorage();
+    notifyListeners();
     
-    // 구매 이력 저장
-    final purchases = prefs.getStringList('purchase_history') ?? [];
-    purchases.add('${DateTime.now().toIso8601String()}:$productId');
-    await prefs.setStringList('purchase_history', purchases);
+    AppLogger.info('❌ Subscription cancelled');
   }
   
-  // 12. 사용량 통계 가져오기
+  /// Restore purchases (for MVP - just reload from storage)
+  Future<void> restorePurchases() async {
+    await _loadFromLocalStorage();
+    AppLogger.info('🔄 Purchases restored');
+  }
+  
+  /// Get usage statistics
   Future<Map<String, dynamic>> getUsageStatistics() async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    final weekKey = 'week_${DateFormat('yyyy-ww').format(DateTime.now())}';
-    final monthKey = 'month_${DateFormat('yyyy-MM').format(DateTime.now())}';
+    await _loadUsageStatistics();
     
     return {
       'today': _todayUsageCount,
-      'thisWeek': prefs.getInt(weekKey) ?? 0,
-      'thisMonth': prefs.getInt(monthKey) ?? 0,
-      'tier': _currentTier.toString(),
-      'dailyLimit': dailyLimit,
+      'weekly': _weeklyUsage,
+      'monthly': _monthlyUsage,
+      'tier': _currentTier.name,
+      'limit': dailyLimit,
     };
   }
   
-  // 13. 특별 프로모션 체크
-  Future<bool> checkSpecialOffer() async {
-    // 첫 사용자에게 특별 할인 제공
+  /// Load usage statistics
+  Future<void> _loadUsageStatistics() async {
     final prefs = await SharedPreferences.getInstance();
-    final firstUseDate = prefs.getString('first_use_date');
     
-    if (firstUseDate == null) {
-      await prefs.setString('first_use_date', DateTime.now().toIso8601String());
-      return true; // 신규 사용자 할인
+    // Load weekly usage
+    _weeklyUsage.clear();
+    for (int i = 0; i < 7; i++) {
+      final date = DateTime.now().subtract(Duration(days: i));
+      final key = 'usage_${DateFormat('yyyy-MM-dd').format(date)}';
+      final usage = prefs.getInt(key) ?? 0;
+      if (usage > 0) {
+        _weeklyUsage[DateFormat('EEE').format(date)] = usage;
+      }
     }
     
-    // 3일 내 신규 사용자
-    final firstUse = DateTime.parse(firstUseDate);
-    if (DateTime.now().difference(firstUse).inDays <= 3) {
-      return true;
+    // Load monthly usage
+    _monthlyUsage.clear();
+    for (int i = 0; i < 30; i++) {
+      final date = DateTime.now().subtract(Duration(days: i));
+      final key = 'usage_${DateFormat('yyyy-MM-dd').format(date)}';
+      final usage = prefs.getInt(key) ?? 0;
+      if (usage > 0) {
+        final week = 'Week ${(i ~/ 7) + 1}';
+        _monthlyUsage[week] = (_monthlyUsage[week] ?? 0) + usage;
+      }
+    }
+  }
+  
+  /// Save usage statistics
+  Future<void> _saveUsageStatistics(int usage) async {
+    final prefs = await SharedPreferences.getInstance();
+    final date = _lastResetDate ?? DateTime.now();
+    final key = 'usage_${DateFormat('yyyy-MM-dd').format(date)}';
+    await prefs.setInt(key, usage);
+  }
+  
+  /// Check if same day
+  bool _isSameDay(DateTime date1, DateTime date2) {
+    return date1.year == date2.year &&
+           date1.month == date2.month &&
+           date1.day == date2.day;
+  }
+  
+  /// Get remaining trial days
+  int? getRemainingTrialDays() {
+    if (_trialStartDate == null) return null;
+    
+    final daysSinceTrial = DateTime.now().difference(_trialStartDate!).inDays;
+    final remaining = TRIAL_DAYS - daysSinceTrial;
+    return remaining > 0 ? remaining : 0;
+  }
+  
+  /// Check if in trial period
+  bool get isInTrial {
+    if (_trialStartDate == null) return false;
+    final remaining = getRemainingTrialDays();
+    return remaining != null && remaining > 0;
+  }
+  
+  /// Get subscription status text
+  String getSubscriptionStatus() {
+    if (isInTrial) {
+      return 'Free Trial (${getRemainingTrialDays()} days left)';
     }
     
-    return false;
+    switch (_currentTier) {
+      case SubscriptionTier.premium:
+        return 'Premium Member';
+      case SubscriptionTier.pro:
+        return 'Pro Member';
+      default:
+        return 'Free User';
+    }
   }
   
   @override
   void dispose() {
+    _saveToLocalStorage();
     super.dispose();
   }
 }

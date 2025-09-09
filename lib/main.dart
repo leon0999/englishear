@@ -13,6 +13,8 @@ import 'screens/chatgpt_level_screen_v2.dart';
 import 'screens/realtime_only_screen.dart';
 import 'screens/simplified_conversation_screen.dart';
 import 'screens/auto_conversation_screen.dart';
+import 'screens/improved_conversation_screen.dart';
+import 'screens/ultra_low_latency_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -98,7 +100,7 @@ class EnglishEarApp extends StatelessWidget {
             systemOverlayStyle: SystemUiOverlayStyle.light,
           ),
         ),
-        home: const AutoConversationScreen(),  // Auto-start conversation without buttons
+        home: const UltraLowLatencyScreen(),  // Moshi AI level ultra-low latency screen
       ),
     );
   }

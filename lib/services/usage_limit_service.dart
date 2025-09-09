@@ -33,9 +33,9 @@ class UsageLimitService extends ChangeNotifier {
       _prefs = await SharedPreferences.getInstance();
       await _loadData();
       await _checkAndResetDaily();
-      Logger.info('Usage limit service initialized');
+      AppLogger.info('Usage limit service initialized');
     } catch (e) {
-      Logger.error('Failed to initialize usage limit service', error: e);
+      AppLogger.error('Failed to initialize usage limit service', e);
     }
   }
   
@@ -48,7 +48,7 @@ class UsageLimitService extends ChangeNotifier {
       _lastResetDate = DateTime.parse(lastResetString);
     }
     
-    Logger.debug('Loaded usage data - Count: $_todayReplayCount, Pro: $_isPro');
+    AppLogger.debug('Loaded usage data - Count: $_todayReplayCount, Pro: $_isPro');
   }
   
   Future<void> _checkAndResetDaily() async {
@@ -60,7 +60,7 @@ class UsageLimitService extends ChangeNotifier {
       await _resetDailyCount();
       _lastResetDate = today;
       await _prefs.setString(LAST_RESET_KEY, today.toIso8601String());
-      Logger.info('Daily replay count reset');
+      AppLogger.info('Daily replay count reset');
     }
   }
   
@@ -75,7 +75,7 @@ class UsageLimitService extends ChangeNotifier {
     await _checkAndResetDaily(); // 날짜 체크
     
     if (!canUseReplay) {
-      Logger.warning('Replay limit reached - Count: $_todayReplayCount/$dailyLimit');
+      AppLogger.warning('Replay limit reached - Count: $_todayReplayCount/$dailyLimit');
       return false;
     }
     
@@ -83,7 +83,7 @@ class UsageLimitService extends ChangeNotifier {
     await _prefs.setInt(REPLAY_COUNT_KEY, _todayReplayCount);
     notifyListeners();
     
-    Logger.info('Replay used - Count: $_todayReplayCount/$dailyLimit');
+    AppLogger.info('Replay used - Count: $_todayReplayCount/$dailyLimit');
     return true;
   }
   
@@ -93,7 +93,7 @@ class UsageLimitService extends ChangeNotifier {
     await _prefs.setBool(IS_PRO_KEY, isPro);
     notifyListeners();
     
-    Logger.info('Pro status updated: $isPro');
+    AppLogger.info('Pro status updated: $isPro');
   }
   
   // 사용 통계
@@ -112,7 +112,7 @@ class UsageLimitService extends ChangeNotifier {
   Future<void> debugResetCount() async {
     if (kDebugMode) {
       await _resetDailyCount();
-      Logger.debug('Debug: Count reset');
+      AppLogger.debug('Debug: Count reset');
     }
   }
   
@@ -122,7 +122,7 @@ class UsageLimitService extends ChangeNotifier {
       _todayReplayCount = count;
       await _prefs.setInt(REPLAY_COUNT_KEY, count);
       notifyListeners();
-      Logger.debug('Debug: Count set to $count');
+      AppLogger.debug('Debug: Count set to $count');
     }
   }
 }

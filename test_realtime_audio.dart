@@ -4,7 +4,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:convert';
-import 'dart:async';
+import 'dart:math' as math;
 
 void main() async {
   print('🎯 OpenAI Realtime API Audio Test');
@@ -63,7 +63,7 @@ Uint8List generateTestPCM() {
   
   for (int i = 0; i < numSamples; i++) {
     final sample = (amplitude * 32767 * 
-                   (2 * 3.14159 * frequency * i / sampleRate).sin()).toInt();
+                   math.sin(2 * 3.14159 * frequency * i / sampleRate)).toInt();
     pcmData[i * 2] = sample & 0xFF;
     pcmData[i * 2 + 1] = (sample >> 8) & 0xFF;
   }

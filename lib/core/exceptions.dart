@@ -1,3 +1,5 @@
+import 'package:dio/dio.dart';
+
 class AppException implements Exception {
   final String message;
   final String? code;
