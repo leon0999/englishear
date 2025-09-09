@@ -13,7 +13,8 @@ import '../utils/audio_utils.dart';
 import '../core/logger.dart';
 
 // Conditional import for web
-import 'dart:html' as html if (dart.library.io) 'dart:io' as html;
+import 'dart:html' as html if (dart.library.io) 'dart:io';
+import 'package:just_audio/just_audio.dart';
 
 class AudioPlaybackService {
   final AudioPlayer _audioPlayer = AudioPlayer();

@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:just_audio/just_audio.dart';
 import '../core/logger.dart';
 
 class AudioServiceV2 {

@@ -320,6 +320,27 @@ class EnhancedSubscriptionService extends ChangeNotifier {
     }
   }
   
+  /// Use upgrade replay
+  Future<bool> useUpgradeReplay() async {
+    return await incrementUsage('upgrade');
+  }
+  
+  /// Get time until daily reset
+  String getTimeUntilReset() {
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final difference = tomorrow.difference(now);
+    
+    final hours = difference.inHours;
+    final minutes = difference.inMinutes.remainder(60);
+    
+    if (hours > 0) {
+      return '$hours hr ${minutes} min';
+    } else {
+      return '$minutes min';
+    }
+  }
+  
   @override
   void dispose() {
     _saveToLocalStorage();

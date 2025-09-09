@@ -34,7 +34,7 @@ class _ImmersiveTrainingScreenV2State extends State<ImmersiveTrainingScreenV2>
   final ai_service.ImageGenerationService _imageService =
       ai_service.ImageGenerationService();
   final ContentGenerationService _contentService = ContentGenerationService();
-  final AudioService _audioService = AudioService();
+  final AudioServiceV2 _audioService = AudioServiceV2();
   
   // 음성 인식
   late stt.SpeechToText _speech;

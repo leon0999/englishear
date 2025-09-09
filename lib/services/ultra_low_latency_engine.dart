@@ -61,7 +61,6 @@ class UltraLowLatencyEngine {
           'input_audio_format': 'pcm16',
           'output_audio_format': 'pcm16',
           'input_audio_transcription': {
-            'enabled': true,
             'model': 'whisper-1'
           },
           'turn_detection': {
@@ -164,7 +163,18 @@ class UltraLowLatencyEngine {
           break;
           
         case 'error':
-          AppLogger.error('API Error: ${data['error']}');
+          final errorMsg = data['error']?.toString() ?? 'Unknown error';
+          AppLogger.error('API Error: $errorMsg');
+          
+          // 세션 업데이트 에러인 경우 다시 시도
+          if (errorMsg.contains('Unknown parameter')) {
+            AppLogger.warning('Retrying with simplified configuration...');
+            _sendSimplifiedConfig();
+          }
+          break;
+          
+        case 'session.updated':
+          AppLogger.success('✅ Session configuration updated successfully');
           break;
       }
     } catch (e) {
@@ -274,6 +284,31 @@ class UltraLowLatencyEngine {
     _lastRequestTime = null;
     _firstByteLatency = 0;
     _totalResponses = 0;
+  }
+  
+  void _sendSimplifiedConfig() {
+    // 간소화된 설정 - 문제가 될 수 있는 파라미터 제거
+    final simplifiedConfig = {
+      'type': 'session.update',
+      'session': {
+        'modalities': ['text', 'audio'],
+        'instructions': 'You are a helpful English tutor. Respond quickly and naturally.',
+        'voice': 'alloy',
+        'input_audio_format': 'pcm16',
+        'output_audio_format': 'pcm16',
+        'turn_detection': {
+          'type': 'server_vad',
+          'threshold': 0.5,
+          'silence_duration_ms': 200,
+        },
+        'temperature': 0.7,
+      }
+    };
+    
+    if (_channel != null) {
+      _channel!.sink.add(jsonEncode(simplifiedConfig));
+      AppLogger.info('📤 Sent simplified configuration');
+    }
   }
   
   Future<void> _reconnect() async {

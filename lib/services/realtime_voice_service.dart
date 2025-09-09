@@ -3,10 +3,31 @@ import 'dart:convert';
 import 'dart:typed_data';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:record/record.dart';
-// import 'package:audioplayers/audioplayers.dart';  // Removed - using just_audio instead
+import 'package:just_audio/just_audio.dart';
 
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../core/logger.dart';
+
+// Custom AudioSource for playing bytes
+class MyCustomAudioSource extends StreamAudioSource {
+  final Uint8List bytes;
+  
+  MyCustomAudioSource(this.bytes);
+  
+  @override
+  Future<StreamAudioResponse> request([int? start, int? end]) async {
+    start ??= 0;
+    end ??= bytes.length;
+    
+    return StreamAudioResponse(
+      sourceLength: bytes.length,
+      contentLength: end - start,
+      offset: start,
+      stream: Stream.value(bytes.sublist(start, end)),
+      contentType: 'audio/wav',
+    );
+  }
+}
 
 class RealtimeVoiceService {
   WebSocketChannel? _channel;
@@ -280,10 +301,10 @@ class RealtimeVoiceService {
     try {
       if (audioData.isEmpty) return;
       
-      await _audioPlayer.play(
-        BytesSource(audioData),
-        mode: PlayerMode.lowLatency,
+      await _audioPlayer.setAudioSource(
+        MyCustomAudioSource(audioData),
       );
+      await _audioPlayer.play();
     } catch (e) {
       AppLogger.error('Failed to play audio chunk', e);
     }

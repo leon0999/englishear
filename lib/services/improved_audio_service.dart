@@ -71,7 +71,7 @@ class ImprovedAudioService {
     try {
       // Configure audio session for low latency
       final session = await audio_session.AudioSession.instance;
-      await session.configure(const audio_session.AudioSessionConfiguration(
+      await session.configure(audio_session.AudioSessionConfiguration(
         avAudioSessionCategory: audio_session.AVAudioSessionCategory.playAndRecord,
         avAudioSessionCategoryOptions: audio_session.AVAudioSessionCategoryOptions.allowBluetooth |
                                        audio_session.AVAudioSessionCategoryOptions.defaultToSpeaker |
@@ -79,7 +79,7 @@ class ImprovedAudioService {
         avAudioSessionMode: audio_session.AVAudioSessionMode.voiceChat, // Optimized for voice
         avAudioSessionRouteSharingPolicy: audio_session.AVAudioSessionRouteSharingPolicy.defaultPolicy,
         avAudioSessionSetActiveOptions: audio_session.AVAudioSessionSetActiveOptions.none,
-        androidAudioAttributes: audio_session.AndroidAudioAttributes(
+        androidAudioAttributes: const audio_session.AndroidAudioAttributes(
           contentType: audio_session.AndroidAudioContentType.speech,
           flags: audio_session.AndroidAudioFlags.none,
           usage: audio_session.AndroidAudioUsage.voiceCommunication,

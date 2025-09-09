@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:convert';
 
 class AudioUtils {
   /// PCM to WAV conversion for audio playback
@@ -53,5 +54,21 @@ class AudioUtils {
     
     // Combine header and PCM data
     return Uint8List.fromList([...wavHeader, ...pcmData]);
+  }
+  
+  /// Convert base64 encoded PCM to WAV format
+  static Uint8List base64PcmToWav(
+    String base64Pcm, {
+    int sampleRate = 24000,
+    int channels = 1,
+    int bitsPerSample = 16,
+  }) {
+    final pcmData = base64.decode(base64Pcm);
+    return pcmToWav(
+      Uint8List.fromList(pcmData),
+      sampleRate: sampleRate,
+      channels: channels,
+      bitsPerSample: bitsPerSample,
+    );
   }
 }

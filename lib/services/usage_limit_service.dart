@@ -125,4 +125,25 @@ class UsageLimitService extends ChangeNotifier {
       AppLogger.debug('Debug: Count set to $count');
     }
   }
+  
+  // 기능별 사용 가능 여부 체크
+  Future<bool> canUseFeature(String feature) async {
+    await _checkAndResetDaily();
+    
+    // conversations 기능에 대한 제한 체크
+    if (feature == 'conversations') {
+      return canUseReplay;
+    }
+    
+    // 다른 기능들은 기본적으로 허용
+    return true;
+  }
+  
+  // 기능 사용량 증가
+  Future<void> incrementUsage(String feature) async {
+    if (feature == 'conversations') {
+      await useReplay();
+    }
+    // 다른 기능들에 대한 처리는 필요시 추가
+  }
 }

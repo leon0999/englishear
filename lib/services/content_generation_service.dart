@@ -8,7 +8,7 @@ import 'audio_service.dart';
 class ContentGenerationService {
   late final Dio _dio;
   late final String _apiKey;
-  final AudioService audioService = AudioService();
+  final AudioServiceV2 audioService = AudioServiceV2();
   
   ContentGenerationService() {
     _apiKey = dotenv.env['OPENAI_API_KEY'] ?? '';

@@ -461,7 +461,7 @@ class _LatencyChartPainter extends CustomPainter {
     // Draw target line
     paint.color = Colors.amber.withOpacity(0.5);
     paint.strokeWidth = 1;
-    paint.pathEffect = null;
+    // pathEffect removed in Flutter 3.x
     final targetY = size.height - (targetLine / maxValue * size.height);
     canvas.drawLine(
       Offset(0, targetY),

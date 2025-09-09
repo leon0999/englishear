@@ -147,7 +147,7 @@ class _ImprovedConversationScreenState extends State<ImprovedConversationScreen>
       
       // Check subscription status
       await _subscriptionService.initialize();
-      final isSubscribed = await _subscriptionService.isSubscribed();
+      final isSubscribed = _subscriptionService.isSubscribed;
       
       // Initialize core services
       await _initializeCoreServices();

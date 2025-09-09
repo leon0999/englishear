@@ -109,11 +109,9 @@ class OpenAIService {
             }
           ],
           'response_format': {'type': 'json_object'},
-            'temperature': 0.7,
-            'max_tokens': 300,
-          },
-        ),
-        retryIf: (e) => _isRetryableError(e),
+          'temperature': 0.7,
+          'max_tokens': 300,
+        },
       );
       
       final content = response.data['choices'][0]['message']['content'];
@@ -171,9 +169,7 @@ class OpenAIService {
             'temperature': 0.3,
             'max_tokens': 500,
           },
-        ),
-        retryIf: (e) => _isRetryableError(e),
-      );
+        );
       
       final content = response.data['choices'][0]['message']['content'];
       return json.decode(content);
@@ -210,9 +206,7 @@ class OpenAIService {
             'temperature': 0.7,
             'max_tokens': 200,
           },
-        ),
-        retryIf: (e) => _isRetryableError(e),
-      );
+        );
       
       return response.data['choices'][0]['message']['content'];
     } catch (e) {
@@ -251,5 +245,18 @@ class OpenAIService {
     final basePrompt = levelPrompts[scenario] ?? levelPrompts['street']!;
     
     return '$basePrompt, high quality, clear composition, educational content, suitable for language learning';
+  }
+  
+  // Helper method to check if error is retryable
+  bool _isRetryableError(dynamic error) {
+    if (error is DioException) {
+      // Retry on network errors and 5xx server errors
+      return error.type == DioExceptionType.connectionTimeout ||
+             error.type == DioExceptionType.sendTimeout ||
+             error.type == DioExceptionType.receiveTimeout ||
+             (error.response?.statusCode != null && 
+              error.response!.statusCode! >= 500);
+    }
+    return false;
   }
 }

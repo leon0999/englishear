@@ -161,12 +161,10 @@ class _VoiceChatScreenState extends State<VoiceChatScreen>
               // 구독 처리 
               try {
                 final subscriptionService = context.read<EnhancedSubscriptionService>();
-                final success = await subscriptionService.purchaseSubscription('pro_monthly_9900');
-                if (success) {
-                  Navigator.pop(context);
-                  _showSuccess('Pro subscription activated!');
-                  await _usageLimitService.setProStatus(true);
-                }
+                await subscriptionService.purchaseSubscription('pro_monthly_9900');
+                Navigator.pop(context);
+                _showSuccess('Pro subscription activated!');
+                await _usageLimitService.setProStatus(true);
               } catch (e) {
                 _showError('Purchase failed. Please try again.');
               }
