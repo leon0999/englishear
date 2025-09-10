@@ -5,22 +5,29 @@ import 'dart:convert';
 import '../core/logger.dart';
 import 'performance_monitor.dart';
 
-/// Ultra-low latency engine for real-time conversation
-/// Target: < 200ms end-to-end latency like Moshi AI
+/// Ultra-low latency engine with robust WebSocket connection management
 class UltraLowLatencyEngine {
   IOWebSocketChannel? _channel;
   StreamController<Uint8List>? _audioController;
   StreamController<String>? _textController;
   Timer? _heartbeatTimer;
+  Timer? _keepAliveTimer;
   
-  // Buffering optimization for minimal latency
+  // Connection management
+  String? _apiKey;
+  bool _isConnected = false;
+  int _reconnectAttempts = 0;
+  static const int MAX_RECONNECT_ATTEMPTS = 3;
+  
+  // Buffering optimization
   static const int CHUNK_SIZE = 480; // 20ms at 24kHz
   static const int MAX_BUFFER_SIZE = 960; // Max 40ms buffer
+  static const int MIN_BUFFER_SIZE = 4800; // 100ms minimum
   static const int SAMPLE_RATE = 24000;
   
   List<int> _audioBuffer = [];
+  List<int> _pendingAudioBuffer = [];
   bool _isProcessing = false;
-  bool _isConnected = false;
   
   // Performance metrics
   DateTime? _lastRequestTime;
@@ -31,9 +38,19 @@ class UltraLowLatencyEngine {
   final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
   
   Future<void> connect(String apiKey) async {
+    _apiKey = apiKey;
+    await _connect();
+  }
+  
+  Future<void> _connect() async {
     AppLogger.test('==================== ULTRA LOW LATENCY ENGINE START ====================');
     
     try {
+      if (_isConnected) {
+        AppLogger.warning('⚠️ Already connected');
+        return;
+      }
+      
       final uri = Uri.parse(
         'wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17'
       );
@@ -41,21 +58,52 @@ class UltraLowLatencyEngine {
       _channel = IOWebSocketChannel.connect(
         uri,
         headers: {
-          'Authorization': 'Bearer $apiKey',
+          'Authorization': 'Bearer $_apiKey',
           'OpenAI-Beta': 'realtime=v1',
         },
-        pingInterval: Duration(seconds: 20),
       );
       
       _audioController = StreamController<Uint8List>.broadcast();
       _textController = StreamController<String>.broadcast();
       
-      // Send optimized configuration for minimum latency with slower speech
-      final config = {
-        'type': 'session.update',
-        'session': {
-          'modalities': ['text', 'audio'],
-          'instructions': '''You are a helpful English tutor for language learners. 
+      // Send optimized configuration immediately
+      await _sendSessionConfig();
+      
+      // Setup connection monitoring
+      _channel!.stream.listen(
+        _handleMessage,
+        onError: (error) {
+          AppLogger.error('WebSocket error', error);
+          _handleDisconnection();
+        },
+        onDone: () {
+          AppLogger.warning('WebSocket connection closed');
+          _handleDisconnection();
+        },
+        cancelOnError: false, // Keep listening even on error
+      );
+      
+      // Setup keep-alive mechanisms
+      _setupKeepAlive();
+      
+      _isConnected = true;
+      _reconnectAttempts = 0;
+      
+      AppLogger.success('✅ Ultra-low latency engine connected successfully');
+      AppLogger.test('==================== ULTRA LOW LATENCY ENGINE READY ====================');
+      
+    } catch (e) {
+      AppLogger.error('Connection failed', e);
+      _handleDisconnection();
+    }
+  }
+  
+  Future<void> _sendSessionConfig() async {
+    final config = {
+      'type': 'session.update',
+      'session': {
+        'modalities': ['text', 'audio'],
+        'instructions': '''You are a helpful English tutor for language learners. 
           CRITICAL RULES:
           1. ALWAYS respond in English ONLY - never use Spanish, French, or any other language
           2. Speak slowly and clearly with natural pauses between sentences
@@ -63,53 +111,74 @@ class UltraLowLatencyEngine {
           4. Pronounce each word distinctly for better understanding
           5. Keep responses short (1-2 sentences)
           6. If someone speaks to you in another language, respond in English only''',
-          'voice': 'shimmer',  // Using supported voice model
-          'input_audio_format': 'pcm16',
-          'output_audio_format': 'pcm16',
-          'input_audio_transcription': {
-            'model': 'whisper-1'
-          },
-          'turn_detection': {
-            'type': 'server_vad',
-            'threshold': 0.5,
-            'prefix_padding_ms': 300,     // Increased for better speech detection
-            'silence_duration_ms': 500,   // Increased for natural conversation flow
-          },
-          'temperature': 0.6,  // Lower temperature for more consistent responses
-          'max_response_output_tokens': 1024  // Keep responses concise
-        }
-      };
-      
-      _channel!.sink.add(jsonEncode(config));
-      
-      // Start performance monitoring for connection
-      _performanceMonitor.startOperation('websocket_connect');
-      
-      // Handle messages with minimal processing
-      _channel!.stream.listen(
-        _handleMessage,
-        onError: (error) {
-          AppLogger.error('WebSocket error', error);
-          _reconnect();
+        'voice': 'shimmer',  // Using supported voice model
+        'input_audio_format': 'pcm16',
+        'output_audio_format': 'pcm16',
+        'input_audio_transcription': {
+          'model': 'whisper-1'
         },
-        onDone: () {
-          AppLogger.warning('WebSocket connection closed');
-          _reconnect();
+        'turn_detection': {
+          'type': 'server_vad',
+          'threshold': 0.5,
+          'prefix_padding_ms': 300,
+          'silence_duration_ms': 500,
         },
-      );
-      
-      // Heartbeat to maintain connection
-      _heartbeatTimer = Timer.periodic(Duration(seconds: 30), (_) {
+        'temperature': 0.6,
+        'max_response_output_tokens': 1024
+      }
+    };
+    
+    _sendMessage(config);
+    AppLogger.info('📤 Session configuration sent');
+  }
+  
+  void _setupKeepAlive() {
+    // Heartbeat timer - every 20 seconds
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(Duration(seconds: 20), (_) {
+      if (_isConnected) {
         _sendHeartbeat();
+      }
+    });
+    
+    // Keep-alive timer - every 10 seconds for more frequent pings
+    _keepAliveTimer?.cancel();
+    _keepAliveTimer = Timer.periodic(Duration(seconds: 10), (_) {
+      if (_isConnected) {
+        try {
+          // Send a lightweight keep-alive message
+          _channel?.sink.add(jsonEncode({'type': 'input_audio_buffer.clear'}));
+          AppLogger.debug('🔄 Keep-alive ping sent');
+        } catch (e) {
+          AppLogger.error('Keep-alive failed', e);
+          _handleDisconnection();
+        }
+      }
+    });
+    
+    AppLogger.info('⏰ Keep-alive mechanisms activated');
+  }
+  
+  void _handleDisconnection() {
+    _isConnected = false;
+    _heartbeatTimer?.cancel();
+    _keepAliveTimer?.cancel();
+    
+    if (_reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+      _reconnectAttempts++;
+      AppLogger.warning('🔄 Attempting to reconnect... (${_reconnectAttempts}/$MAX_RECONNECT_ATTEMPTS)');
+      
+      // Exponential backoff for reconnection
+      final delay = Duration(seconds: 2 * _reconnectAttempts);
+      Future.delayed(delay, () {
+        if (!_isConnected && _apiKey != null) {
+          _connect();
+        }
       });
-      
-      _isConnected = true;
-      AppLogger.success('✅ Ultra-low latency engine connected');
-      AppLogger.test('==================== ULTRA LOW LATENCY ENGINE READY ====================');
-      
-    } catch (e) {
-      AppLogger.error('Connection failed', e);
-      throw e;
+    } else {
+      AppLogger.error('Max reconnection attempts reached', null);
+      // Notify UI about connection failure
+      _textController?.add('[Connection Lost - Please restart the app]');
     }
   }
   
@@ -117,42 +186,39 @@ class UltraLowLatencyEngine {
     try {
       final data = jsonDecode(message);
       
+      // Track first response for latency metrics
+      if (_lastRequestTime != null && _firstByteLatency == 0) {
+        _firstByteLatency = DateTime.now().difference(_lastRequestTime!).inMilliseconds;
+        _performanceMonitor.recordLatency(_firstByteLatency);
+      }
+      
       switch (data['type']) {
         case 'session.created':
-          AppLogger.success('📱 Session created successfully');
-          _performanceMonitor.endOperation('websocket_connect', category: 'connection');
+          AppLogger.success('Session created: ${data['session']?['id']}');
+          break;
+          
+        case 'session.updated':
+          AppLogger.success('Session configuration updated');
           break;
           
         case 'response.audio.delta':
-          // Decode and stream audio immediately for minimal latency
-          if (data['delta'] != null) {
-            final audioBytes = base64Decode(data['delta']);
+          final audioBytes = base64Decode(data['delta'] ?? '');
+          if (audioBytes.isNotEmpty) {
             _audioController?.add(Uint8List.fromList(audioBytes));
-            
-            // Track first byte latency
-            if (_lastRequestTime != null && _totalResponses == 0) {
-              _firstByteLatency = DateTime.now().difference(_lastRequestTime!).inMilliseconds;
-              AppLogger.success('🎯 First byte latency: ${_firstByteLatency}ms');
-              _performanceMonitor.endOperation('first_byte_response', category: 'audio');
-            }
             _totalResponses++;
-            
-            // Record audio metric
-            _performanceMonitor.recordAudioMetric(
-              operation: 'audio_delta',
-              audioSizeBytes: audioBytes.length,
-              processingTimeMs: _firstByteLatency,
-              audioQuality: 1.0,
-            );
           }
           break;
           
         case 'response.audio_transcript.delta':
-          // Stream text in real-time
-          if (data['delta'] != null) {
-            _textController?.add(data['delta']);
-            AppLogger.info('🤖 AI: ${data['delta']}');
-          }
+          final transcript = data['delta'] ?? '';
+          AppLogger.info('🤖 AI: $transcript');
+          _textController?.add(transcript);
+          break;
+          
+        case 'response.text.delta':
+          final text = data['delta'] ?? '';
+          AppLogger.info('📝 AI Text: $text');
+          _textController?.add(text);
           break;
           
         case 'response.done':
@@ -160,88 +226,91 @@ class UltraLowLatencyEngine {
           _resetMetrics();
           break;
           
-        case 'conversation.item.input_audio_transcription.completed':
-          final transcript = data['transcript'] ?? '';
-          AppLogger.info('👤 User: "$transcript"');
-          _lastRequestTime = DateTime.now();
-          _totalResponses = 0;
-          _performanceMonitor.startOperation('first_byte_response');
-          break;
-          
         case 'error':
-          final errorMsg = data['error']?.toString() ?? 'Unknown error';
-          AppLogger.error('API Error: $errorMsg');
-          
-          // 세션 업데이트 에러인 경우 다시 시도
-          if (errorMsg.contains('Unknown parameter')) {
-            AppLogger.warning('Retrying with simplified configuration...');
-            _sendSimplifiedConfig();
+          AppLogger.error('API Error', data['error']);
+          if (data['error']?['message']?.contains('connection') ?? false) {
+            _handleDisconnection();
           }
           break;
           
-        case 'session.updated':
-          AppLogger.success('✅ Session configuration updated successfully');
-          break;
+        default:
+          AppLogger.debug('Received: ${data['type']}');
       }
     } catch (e) {
       AppLogger.error('Message handling error', e);
     }
   }
   
-  /// Send audio with minimal buffering for ultra-low latency
+  /// Send audio with connection check
   void sendAudio(Uint8List audioData) {
-    if (!_isConnected || _channel == null) return;
-    
-    // Add to buffer
-    _audioBuffer.addAll(audioData);
-    
-    // Send immediately when we have enough data (20ms chunk)
-    while (_audioBuffer.length >= CHUNK_SIZE) {
-      final chunk = _audioBuffer.take(CHUNK_SIZE).toList();
-      _audioBuffer = _audioBuffer.skip(CHUNK_SIZE).toList();
-      
-      final message = {
-        'type': 'input_audio_buffer.append',
-        'audio': base64Encode(chunk),
-      };
-      
-      _channel!.sink.add(jsonEncode(message));
+    if (!_isConnected || _channel == null) {
+      AppLogger.warning('Cannot send audio - not connected');
+      return;
     }
     
-    // Force send if buffer gets too large
-    if (_audioBuffer.length > MAX_BUFFER_SIZE) {
-      _flushAudioBuffer();
-    }
-  }
-  
-  /// Commit audio buffer to trigger response with minimum size guarantee
-  void commitAudio() {
-    // Ensure minimum buffer size (100ms = 4800 bytes at 24kHz)
-    const int MIN_BUFFER_SIZE = 4800;
-    
-    // If we have pending audio, ensure it meets minimum size
-    if (_audioBuffer.isNotEmpty && _audioBuffer.length < MIN_BUFFER_SIZE) {
-      // Pad buffer to minimum size
-      while (_audioBuffer.length < MIN_BUFFER_SIZE) {
-        _audioBuffer.add(0);
+    try {
+      _audioBuffer.addAll(audioData);
+      
+      // Process chunks
+      while (_audioBuffer.length >= CHUNK_SIZE) {
+        final chunk = _audioBuffer.take(CHUNK_SIZE).toList();
+        _audioBuffer = _audioBuffer.skip(CHUNK_SIZE).toList();
+        
+        final message = {
+          'type': 'input_audio_buffer.append',
+          'audio': base64Encode(chunk),
+        };
+        
+        _sendMessage(message);
       }
-      AppLogger.debug('📤 Padded buffer to ${_audioBuffer.length} bytes');
+      
+      // Force send if buffer gets too large
+      if (_audioBuffer.length > MAX_BUFFER_SIZE) {
+        _flushAudioBuffer();
+      }
+    } catch (e) {
+      AppLogger.error('Error sending audio', e);
+      _handleDisconnection();
     }
-    
-    // Flush any remaining audio
-    if (_audioBuffer.isNotEmpty) {
-      _flushAudioBuffer();
-    }
-    
-    // Commit to trigger AI response
-    _channel?.sink.add(jsonEncode({'type': 'input_audio_buffer.commit'}));
-    
-    AppLogger.debug('📤 Audio committed for processing');
   }
   
-  /// Send text message for faster text-based interaction
+  /// Commit audio buffer with minimum size guarantee
+  void commitAudio() {
+    if (!_isConnected || _channel == null) {
+      AppLogger.warning('Cannot commit audio - not connected');
+      return;
+    }
+    
+    try {
+      // Ensure minimum buffer size
+      if (_audioBuffer.isNotEmpty && _audioBuffer.length < MIN_BUFFER_SIZE) {
+        // Pad buffer to minimum size
+        while (_audioBuffer.length < MIN_BUFFER_SIZE) {
+          _audioBuffer.add(0);
+        }
+        AppLogger.debug('📤 Padded buffer to ${_audioBuffer.length} bytes');
+      }
+      
+      // Flush any remaining audio
+      if (_audioBuffer.isNotEmpty) {
+        _flushAudioBuffer();
+      }
+      
+      // Commit to trigger AI response
+      _sendMessage({'type': 'input_audio_buffer.commit'});
+      
+      AppLogger.debug('📤 Audio committed for processing');
+    } catch (e) {
+      AppLogger.error('Error committing audio', e);
+    }
+  }
+  
+  /// Send text message
   void sendText(String text) {
-    if (!_isConnected || _channel == null) return;
+    if (!_isConnected || _channel == null) {
+      AppLogger.warning('Cannot send text - not connected');
+      return;
+    }
     
     _lastRequestTime = DateTime.now();
     _totalResponses = 0;
@@ -253,17 +322,17 @@ class UltraLowLatencyEngine {
         'role': 'user',
         'content': [
           {
-            'type': 'input_text',  // Changed from 'text' to 'input_text'
+            'type': 'input_text',
             'text': text,
           }
         ],
       },
     };
     
-    _channel!.sink.add(jsonEncode(message));
+    _sendMessage(message);
     
-    // Trigger response immediately
-    _channel!.sink.add(jsonEncode({'type': 'response.create'}));
+    // Request immediate response
+    _sendMessage({'type': 'response.create'});
     
     AppLogger.info('💬 Sent text: "$text"');
   }
@@ -274,16 +343,24 @@ class UltraLowLatencyEngine {
         'type': 'input_audio_buffer.append',
         'audio': base64Encode(_audioBuffer),
       };
-      _channel!.sink.add(jsonEncode(message));
+      _sendMessage(message);
       _audioBuffer.clear();
     }
   }
   
-  void _sendHeartbeat() {
+  void _sendMessage(Map<String, dynamic> message) {
     if (_isConnected && _channel != null) {
-      // OpenAI doesn't require explicit ping, but we can send empty message
-      AppLogger.debug('💓 Heartbeat sent');
+      try {
+        _channel!.sink.add(jsonEncode(message));
+      } catch (e) {
+        AppLogger.error('Error sending message', e);
+        _handleDisconnection();
+      }
     }
+  }
+  
+  void _sendHeartbeat() {
+    AppLogger.debug('💓 Heartbeat sent');
   }
   
   void _logPerformanceMetrics() {
@@ -306,63 +383,37 @@ class UltraLowLatencyEngine {
     _totalResponses = 0;
   }
   
-  void _sendSimplifiedConfig() {
-    // 간소화된 설정 - 문제가 될 수 있는 파라미터 제거
-    final simplifiedConfig = {
-      'type': 'session.update',
-      'session': {
-        'modalities': ['text', 'audio'],
-        'instructions': 'You are a helpful English tutor. Respond quickly and naturally.',
-        'voice': 'alloy',
-        'input_audio_format': 'pcm16',
-        'output_audio_format': 'pcm16',
-        'turn_detection': {
-          'type': 'server_vad',
-          'threshold': 0.5,
-          'silence_duration_ms': 200,
-        },
-        'temperature': 0.7,
-      }
-    };
-    
-    if (_channel != null) {
-      _channel!.sink.add(jsonEncode(simplifiedConfig));
-      AppLogger.info('📤 Sent simplified configuration');
+  /// Manually reconnect
+  Future<void> reconnect() async {
+    if (!_isConnected && _apiKey != null) {
+      _reconnectAttempts = 0;
+      await _connect();
     }
   }
   
-  Future<void> _reconnect() async {
-    if (!_isConnected) return;
-    
-    AppLogger.warning('🔄 Attempting to reconnect...');
-    _isConnected = false;
-    
-    await Future.delayed(Duration(seconds: 2));
-    
-    // Note: In production, store API key securely and retrieve here
-    // For now, reconnection needs to be handled by the caller
-  }
+  /// Get connection status
+  bool get isConnected => _isConnected;
   
   /// Get audio stream for playback
   Stream<Uint8List>? get audioStream => _audioController?.stream;
   
-  /// Get text stream for display
+  /// Get text stream for UI
   Stream<String>? get textStream => _textController?.stream;
   
-  /// Check connection status
-  bool get isConnected => _isConnected;
-  
-  /// Disconnect and cleanup
+  /// Dispose resources
   void dispose() {
-    AppLogger.info('🔚 Disposing ultra-low latency engine');
-    
     _isConnected = false;
     _heartbeatTimer?.cancel();
+    _keepAliveTimer?.cancel();
+    _audioStreamSubscription?.cancel();
+    _textStreamSubscription?.cancel();
     _channel?.sink.close();
     _audioController?.close();
     _textController?.close();
-    _audioBuffer.clear();
-    
-    AppLogger.test('==================== ULTRA LOW LATENCY ENGINE DISPOSED ====================');
+    AppLogger.info('🔌 Ultra-low latency engine disposed');
   }
+  
+  // Stream subscriptions
+  StreamSubscription? _audioStreamSubscription;
+  StreamSubscription? _textStreamSubscription;
 }
