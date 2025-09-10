@@ -32,7 +32,9 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
   bool _isRecording = false;
   bool _isSpeaking = false;
   String _statusText = 'Initializing...';
-  String _conversationText = '';
+  List<ChatMessage> _messages = [];
+  static const int MAX_MESSAGES = 5; // Maximum messages to display
+  String _currentUserText = '';
   String _currentAiResponse = '';
   double _audioLevel = 0.0;
   
@@ -133,12 +135,11 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
         _isSpeaking = true;
       });
       
-      // Auto-scroll conversation
-      Future.delayed(Duration(milliseconds: 100), () {
-        setState(() {
-          _conversationText += text;
-        });
-      });
+      // When AI response is complete, add to messages
+      if (text.contains('.') || text.contains('?') || text.contains('!')) {
+        _addMessage(_currentAiResponse, false);
+        _currentAiResponse = '';
+      }
     });
     
     // Listen to audio level changes
@@ -193,11 +194,11 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
         _statusText = 'Processing...';
         _isRecording = false;
         
-        // Add user's turn to conversation
-        if (_conversationText.isNotEmpty) {
-          _conversationText += '\n\n';
+        // Add user's message when they finish speaking
+        if (_currentUserText.isNotEmpty) {
+          _addMessage(_currentUserText, true);
+          _currentUserText = '';
         }
-        _conversationText += '👤 You: [Speaking...]\n🤖 AI: ';
       });
       
       AppLogger.info('🛑 Recording stopped');
@@ -236,10 +237,7 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
     if (text.isEmpty || !_isConnected) return;
     
     setState(() {
-      if (_conversationText.isNotEmpty) {
-        _conversationText += '\n\n';
-      }
-      _conversationText += '👤 You: $text\n🤖 AI: ';
+      _addMessage(text, true);
       _currentAiResponse = '';
     });
     
@@ -316,64 +314,96 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
                   color: Colors.white.withOpacity(0.1),
                 ),
               ),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_conversationText.isEmpty)
-                      Center(
-                        child: Text(
-                          'Tap the microphone to start talking\nAchieving Moshi AI level latency!',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            color: Colors.white.withOpacity(0.5),
-                            fontSize: 16,
-                          ),
-                        ),
-                      )
-                    else
-                      Text(
-                        _conversationText,
-                        style: const TextStyle(
-                          color: Colors.white,
+              child: _messages.isEmpty
+                  ? Center(
+                      child: Text(
+                        'Tap the microphone to start talking\nAchieving Moshi AI level latency!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.5),
                           fontSize: 16,
-                          height: 1.5,
                         ),
                       ),
-                    
-                    // Current AI response with typing effect
-                    if (_currentAiResponse.isNotEmpty)
-                      Container(
-                        margin: const EdgeInsets.only(top: 8),
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Colors.blue.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(
-                              Icons.psychology,
-                              color: Colors.blue,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _currentAiResponse,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 16,
+                    )
+                  : ListView.builder(
+                      reverse: true, // Latest messages at bottom
+                      itemCount: _messages.length + (_currentAiResponse.isNotEmpty ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        // Show current AI response at the bottom
+                        if (index == 0 && _currentAiResponse.isNotEmpty) {
+                          return _buildTypingIndicator();
+                        }
+                        
+                        final messageIndex = _currentAiResponse.isNotEmpty 
+                            ? _messages.length - index
+                            : _messages.length - 1 - index;
+                        
+                        if (messageIndex < 0 || messageIndex >= _messages.length) {
+                          return const SizedBox.shrink();
+                        }
+                        
+                        final message = _messages[messageIndex];
+                        return AnimatedOpacity(
+                          opacity: index < 2 ? 1.0 : 0.6, // Fade older messages
+                          duration: const Duration(milliseconds: 300),
+                          child: Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            alignment: message.isUser 
+                                ? Alignment.centerRight 
+                                : Alignment.centerLeft,
+                            child: Container(
+                              constraints: BoxConstraints(
+                                maxWidth: MediaQuery.of(context).size.width * 0.7,
+                              ),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: message.isUser 
+                                    ? Colors.blue.withOpacity(0.2)
+                                    : Colors.grey.withOpacity(0.2),
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(
+                                  color: (message.isUser 
+                                      ? Colors.blue 
+                                      : Colors.grey).withOpacity(0.3),
                                 ),
                               ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        message.isUser ? Icons.person : Icons.psychology,
+                                        size: 16,
+                                        color: message.isUser ? Colors.blue : Colors.green,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        message.isUser ? 'You' : 'AI Tutor',
+                                        style: TextStyle(
+                                          color: message.isUser ? Colors.blue : Colors.green,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    message.text,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+                          ),
+                        );
+                      },
+                    ),
             ),
           ),
           
@@ -457,8 +487,9 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
                 IconButton(
                   onPressed: () {
                     setState(() {
-                      _conversationText = '';
+                      _messages.clear();
                       _currentAiResponse = '';
+                      _currentUserText = '';
                     });
                   },
                   icon: const Icon(Icons.clear),
@@ -552,6 +583,78 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
     );
   }
   
+  void _addMessage(String text, bool isUser) {
+    if (text.trim().isEmpty) return;
+    
+    setState(() {
+      _messages.add(ChatMessage(
+        text: text.trim(),
+        isUser: isUser,
+        timestamp: DateTime.now(),
+      ));
+      
+      // Keep only the latest MAX_MESSAGES
+      if (_messages.length > MAX_MESSAGES) {
+        _messages.removeAt(0);
+      }
+    });
+  }
+  
+  Widget _buildTypingIndicator() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.blue.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: Colors.blue.withOpacity(0.3),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.psychology,
+              size: 16,
+              color: Colors.blue,
+            ),
+            const SizedBox(width: 6),
+            const Text(
+              'AI Tutor',
+              style: TextStyle(
+                color: Colors.blue,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(width: 12),
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                valueColor: AlwaysStoppedAnimation<Color>(
+                  Colors.blue.withOpacity(0.6),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              _currentAiResponse,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
   @override
   void dispose() {
     _pulseController.dispose();
@@ -563,4 +666,17 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
     _audioPlayer.dispose();
     super.dispose();
   }
+}
+
+/// Chat message model
+class ChatMessage {
+  final String text;
+  final bool isUser;
+  final DateTime timestamp;
+  
+  ChatMessage({
+    required this.text,
+    required this.isUser,
+    required this.timestamp,
+  });
 }

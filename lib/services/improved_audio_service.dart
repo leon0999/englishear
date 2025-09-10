@@ -40,6 +40,9 @@ class ImprovedAudioService {
   // Recording state
   bool _isRecording = false;
   StreamSubscription? _recordingSubscription;
+  List<int> _recordingBuffer = [];
+  Timer? _bufferTimer;
+  static const int MIN_BUFFER_SIZE = 4800; // 100ms at 24kHz (24000 * 0.1 * 2 bytes)
   
   // Playback state
   bool _isPlaying = false;
@@ -225,7 +228,7 @@ class ImprovedAudioService {
     return wavHeader.toBytes();
   }
   
-  /// Start recording with real-time streaming
+  /// Start recording with real-time streaming and buffer management
   Future<void> startRecording(Function(Uint8List) onData) async {
     if (_isRecording) return;
     
@@ -236,6 +239,8 @@ class ImprovedAudioService {
     }
     
     try {
+      _recordingBuffer.clear();
+      
       // Configure for low-latency recording
       const config = RecordConfig(
         encoder: AudioEncoder.pcm16bits,
@@ -249,10 +254,30 @@ class ImprovedAudioService {
       final stream = await _recorder.startStream(config);
       _isRecording = true;
       
+      // Set up buffer timer to ensure minimum buffer size
+      _bufferTimer?.cancel();
+      _bufferTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+        if (_recordingBuffer.length >= MIN_BUFFER_SIZE) {
+          final bufferData = Uint8List.fromList(_recordingBuffer);
+          onData(bufferData);
+          _recordingBuffer.clear();
+          AppLogger.debug('📤 Sent buffer of ${bufferData.length} bytes');
+        }
+      });
+      
       _recordingSubscription = stream.listen(
         (data) {
-          onData(data);
+          // Add to buffer instead of sending immediately
+          _recordingBuffer.addAll(data);
           _calculateAudioLevel(data);
+          
+          // If buffer exceeds double the minimum, send immediately
+          if (_recordingBuffer.length >= MIN_BUFFER_SIZE * 2) {
+            final bufferData = Uint8List.fromList(_recordingBuffer);
+            onData(bufferData);
+            _recordingBuffer.clear();
+            AppLogger.debug('📤 Sent large buffer of ${bufferData.length} bytes');
+          }
         },
         onError: (error) {
           AppLogger.error('Recording error', error);
@@ -260,21 +285,35 @@ class ImprovedAudioService {
         },
       );
       
-      AppLogger.success('🎤 Recording started with low-latency config');
+      AppLogger.success('🎤 Recording started with buffer management (min: ${MIN_BUFFER_SIZE} bytes)');
     } catch (e) {
       AppLogger.error('Failed to start recording', e);
     }
   }
   
-  /// Stop recording
+  /// Stop recording with buffer flush
   Future<void> stopRecording() async {
     if (!_isRecording) return;
+    
+    _bufferTimer?.cancel();
+    
+    // Flush remaining buffer with padding if needed
+    if (_recordingBuffer.isNotEmpty) {
+      // Pad buffer to minimum size if too small
+      while (_recordingBuffer.length < MIN_BUFFER_SIZE) {
+        _recordingBuffer.add(0);
+      }
+      
+      final bufferData = Uint8List.fromList(_recordingBuffer);
+      AppLogger.info('📤 Flushing final buffer of ${bufferData.length} bytes');
+      _recordingBuffer.clear();
+    }
     
     await _recordingSubscription?.cancel();
     await _recorder.stop();
     _isRecording = false;
     
-    AppLogger.info('🛑 Recording stopped');
+    AppLogger.info('🛑 Recording stopped with buffer flush');
   }
   
   /// Calculate and emit audio level

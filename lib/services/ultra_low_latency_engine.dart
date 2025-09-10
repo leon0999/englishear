@@ -50,14 +50,17 @@ class UltraLowLatencyEngine {
       _audioController = StreamController<Uint8List>.broadcast();
       _textController = StreamController<String>.broadcast();
       
-      // Send optimized configuration for minimum latency
+      // Send optimized configuration for minimum latency with slower speech
       final config = {
         'type': 'session.update',
         'session': {
           'modalities': ['text', 'audio'],
-          'instructions': '''You are a helpful English tutor optimized for ultra-fast responses. 
-          Keep responses short and natural. Respond immediately without overthinking.''',
-          'voice': 'alloy',
+          'instructions': '''You are a helpful English tutor for language learners. 
+          IMPORTANT: Speak slowly and clearly with natural pauses between sentences. 
+          Use simple vocabulary and short sentences. 
+          Pronounce each word distinctly for better understanding.
+          Keep responses concise and educational.''',
+          'voice': 'nova',  // Changed from 'alloy' to 'nova' for clearer pronunciation
           'input_audio_format': 'pcm16',
           'output_audio_format': 'pcm16',
           'input_audio_transcription': {
@@ -66,11 +69,11 @@ class UltraLowLatencyEngine {
           'turn_detection': {
             'type': 'server_vad',
             'threshold': 0.5,
-            'prefix_padding_ms': 100,     // Reduced from 200ms
-            'silence_duration_ms': 200,   // Reduced from 300ms
+            'prefix_padding_ms': 300,     // Increased for better speech detection
+            'silence_duration_ms': 500,   // Increased for natural conversation flow
           },
-          'temperature': 0.7,
-          'max_response_output_tokens': 1024  // Reduced for faster responses
+          'temperature': 0.6,  // Lower temperature for more consistent responses
+          'max_response_output_tokens': 1024  // Keep responses concise
         }
       };
       
@@ -233,7 +236,7 @@ class UltraLowLatencyEngine {
         'role': 'user',
         'content': [
           {
-            'type': 'text',
+            'type': 'input_text',  // Changed from 'text' to 'input_text'
             'text': text,
           }
         ],
