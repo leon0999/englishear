@@ -56,11 +56,14 @@ class UltraLowLatencyEngine {
         'session': {
           'modalities': ['text', 'audio'],
           'instructions': '''You are a helpful English tutor for language learners. 
-          IMPORTANT: Speak slowly and clearly with natural pauses between sentences. 
-          Use simple vocabulary and short sentences. 
-          Pronounce each word distinctly for better understanding.
-          Keep responses concise and educational.''',
-          'voice': 'nova',  // Changed from 'alloy' to 'nova' for clearer pronunciation
+          CRITICAL RULES:
+          1. ALWAYS respond in English ONLY - never use Spanish, French, or any other language
+          2. Speak slowly and clearly with natural pauses between sentences
+          3. Use simple vocabulary appropriate for English learners
+          4. Pronounce each word distinctly for better understanding
+          5. Keep responses short (1-2 sentences)
+          6. If someone speaks to you in another language, respond in English only''',
+          'voice': 'shimmer',  // Using supported voice model
           'input_audio_format': 'pcm16',
           'output_audio_format': 'pcm16',
           'input_audio_transcription': {
@@ -211,10 +214,24 @@ class UltraLowLatencyEngine {
     }
   }
   
-  /// Commit audio buffer to trigger response
+  /// Commit audio buffer to trigger response with minimum size guarantee
   void commitAudio() {
+    // Ensure minimum buffer size (100ms = 4800 bytes at 24kHz)
+    const int MIN_BUFFER_SIZE = 4800;
+    
+    // If we have pending audio, ensure it meets minimum size
+    if (_audioBuffer.isNotEmpty && _audioBuffer.length < MIN_BUFFER_SIZE) {
+      // Pad buffer to minimum size
+      while (_audioBuffer.length < MIN_BUFFER_SIZE) {
+        _audioBuffer.add(0);
+      }
+      AppLogger.debug('📤 Padded buffer to ${_audioBuffer.length} bytes');
+    }
+    
     // Flush any remaining audio
-    _flushAudioBuffer();
+    if (_audioBuffer.isNotEmpty) {
+      _flushAudioBuffer();
+    }
     
     // Commit to trigger AI response
     _channel?.sink.add(jsonEncode({'type': 'input_audio_buffer.commit'}));
