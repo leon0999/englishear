@@ -170,6 +170,13 @@ IMPORTANT RULES:
         },
         'temperature': 0.8,  // Good variety in responses
         'max_response_output_tokens': 150,  // Concise but complete responses
+        // Voice speed settings for clearer speech
+        'voice_settings': {
+          'speed': 0.9,  // Slower speed for better comprehension
+          'pitch': 1.0,  // Normal pitch
+          'stability': 0.75,  // Stable voice for clarity
+          'similarity_boost': 0.75,  // Natural voice similarity
+        }
       }
     });
     

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:typed_data';
+import 'dart:math' as math;
 import 'package:web_socket_channel/io.dart';
 import 'dart:convert';
 import '../core/logger.dart';
@@ -36,6 +37,18 @@ class UltraLowLatencyEngine {
   
   // Performance monitoring
   final PerformanceMonitor _performanceMonitor = PerformanceMonitor();
+  
+  // Jupiter greeting messages
+  final List<String> _greetings = [
+    "Hey there! How's your day going?",
+    "Hi! What brings you here today?",
+    "Hello! Ready for some English practice?",
+    "Good to see you! What's on your mind?",
+    "Hey! How are you feeling today?",
+    "Hi there! Want to chat for a bit?",
+    "Hello! What would you like to talk about?",
+    "Hey! How's everything with you?",
+  ];
   
   Future<void> connect(String apiKey) async {
     _apiKey = apiKey;
@@ -195,6 +208,8 @@ class UltraLowLatencyEngine {
       switch (data['type']) {
         case 'session.created':
           AppLogger.success('Session created: ${data['session']?['id']}');
+          // Send automatic greeting after session is created
+          _sendInitialGreeting();
           break;
           
         case 'session.updated':
@@ -416,4 +431,40 @@ class UltraLowLatencyEngine {
   // Stream subscriptions
   StreamSubscription? _audioStreamSubscription;
   StreamSubscription? _textStreamSubscription;
+  
+  /// Send initial greeting from Jupiter
+  Future<void> _sendInitialGreeting() async {
+    try {
+      // Wait a moment for session to be fully established
+      await Future.delayed(Duration(seconds: 1));
+      
+      // Select random greeting
+      final random = math.Random();
+      final greeting = _greetings[random.nextInt(_greetings.length)];
+      
+      // Send greeting as a response from Jupiter
+      final message = {
+        'type': 'response.create',
+        'response': {
+          'modalities': ['text', 'audio'],
+          'instructions': 'Say this greeting in a friendly and welcoming tone',
+          'messages': [
+            {
+              'role': 'assistant',
+              'content': greeting
+            }
+          ]
+        }
+      };
+      
+      _channel?.sink.add(jsonEncode(message));
+      AppLogger.info('🤖 Jupiter initiated conversation: "$greeting"');
+      
+      // Also send to text stream for UI
+      _textController?.add('[Jupiter]: $greeting');
+      
+    } catch (e) {
+      AppLogger.error('Failed to send initial greeting', e);
+    }
+  }
 }

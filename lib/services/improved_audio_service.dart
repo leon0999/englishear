@@ -25,12 +25,13 @@ class ImprovedAudioService {
   bool _isProcessing = false;
   Timer? _processTimer;
   
-  // Crossfade parameters - increased for smoother transitions
-  static const int crossfadeSamples = 1200; // 50ms at 24kHz (increased from 480)
+  // Crossfade parameters - reduced to minimize overlap
+  static const int crossfadeSamples = 480; // 20ms at 24kHz (reduced from 1200)
   static const int sampleRate = 24000;
   static const int bytesPerSample = 2;
-  static const int CROSSFADE_BYTES = crossfadeSamples * bytesPerSample; // 2400 bytes
+  static const int CROSSFADE_BYTES = crossfadeSamples * bytesPerSample; // 960 bytes
   static const int OPTIMAL_BUFFER_SIZE = 9600; // 200ms for optimal buffering
+  static const int INTER_CHUNK_GAP_MS = 10; // 10ms gap between chunks to prevent overlap
   
   // Stream controllers
   final _audioLevelController = StreamController<double>.broadcast();
@@ -135,7 +136,7 @@ class ImprovedAudioService {
     }
   }
   
-  /// Process next chunk with noise gate and crossfade
+  /// Process next chunk with noise gate and minimal crossfade
   Future<void> _processNextChunk() async {
     if (_audioQueue.isEmpty || _isProcessing) return;
     
@@ -146,8 +147,9 @@ class ImprovedAudioService {
       // Apply noise gate first to clean the audio
       Uint8List processedData = _applyNoiseGate(chunk.data);
       
-      // Apply crossfade if there was a previous chunk
+      // Add inter-chunk gap to prevent overlap
       if (_lastProcessedChunk != null) {
+        await Future.delayed(Duration(milliseconds: INTER_CHUNK_GAP_MS));
         processedData = _applySmoothCrossfade(_lastProcessedChunk!, processedData);
       }
       
@@ -191,19 +193,19 @@ class ImprovedAudioService {
     }
   }
   
-  /// Apply smooth crossfade with Hamming window
+  /// Apply minimal crossfade to reduce overlap
   Uint8List _applySmoothCrossfade(Uint8List previousChunk, Uint8List currentChunk) {
     try {
-      // Use longer crossfade for smoother transition
+      // Use shorter crossfade to minimize overlap
       final fadeLength = math.min(crossfadeSamples, 
-        math.min(previousChunk.length ~/ 2, currentChunk.length ~/ 2));
+        math.min(previousChunk.length ~/ 4, currentChunk.length ~/ 4)); // Reduced to 1/4
       
       final result = Uint8List.fromList(currentChunk);
       
-      // Apply Hamming window for smoother transition
+      // Simple linear fade instead of Hamming window
       for (int i = 0; i < fadeLength; i++) {
-        // Hamming window coefficients
-        final fadeIn = 0.54 - 0.46 * math.cos(2 * math.pi * i / (fadeLength - 1));
+        // Linear fade coefficients
+        final fadeIn = i / fadeLength;
         final fadeOut = 1.0 - fadeIn;
         
         final prevIndex = (previousChunk.length ~/ 2) - fadeLength + i;
@@ -229,7 +231,7 @@ class ImprovedAudioService {
         }
       }
       
-      AppLogger.debug('🎵 Applied smooth crossfade ($fadeLength samples with Hamming window)');
+      AppLogger.debug('🎵 Applied minimal crossfade ($fadeLength samples with linear fade)');
       return result;
     } catch (e) {
       AppLogger.error('Crossfade error: $e');
