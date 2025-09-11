@@ -25,13 +25,14 @@ class ImprovedAudioService {
   bool _isProcessing = false;
   Timer? _processTimer;
   
-  // Crossfade parameters - reduced to minimize overlap
-  static const int crossfadeSamples = 480; // 20ms at 24kHz (reduced from 1200)
+  // Audio parameters
+  static const bool ENABLE_CROSSFADE = false; // Crossfade completely disabled
+  static const int crossfadeSamples = 480; // Not used when ENABLE_CROSSFADE is false
   static const int sampleRate = 24000;
   static const int bytesPerSample = 2;
-  static const int CROSSFADE_BYTES = crossfadeSamples * bytesPerSample; // 960 bytes
+  static const int CROSSFADE_BYTES = crossfadeSamples * bytesPerSample; // Not used
   static const int OPTIMAL_BUFFER_SIZE = 9600; // 200ms for optimal buffering
-  static const int INTER_CHUNK_GAP_MS = 10; // 10ms gap between chunks to prevent overlap
+  static const int INTER_CHUNK_SILENCE_MS = 5; // 5ms silence between chunks
   
   // Stream controllers
   final _audioLevelController = StreamController<double>.broadcast();
@@ -85,7 +86,7 @@ class ImprovedAudioService {
         avAudioSessionCategoryOptions: audio_session.AVAudioSessionCategoryOptions.allowBluetooth |
                                        audio_session.AVAudioSessionCategoryOptions.defaultToSpeaker |
                                        audio_session.AVAudioSessionCategoryOptions.mixWithOthers,
-        avAudioSessionMode: audio_session.AVAudioSessionMode.voiceChat, // Optimized for voice
+        avAudioSessionMode: audio_session.AVAudioSessionMode.spokenAudio, // Better for clear speech
         avAudioSessionRouteSharingPolicy: audio_session.AVAudioSessionRouteSharingPolicy.defaultPolicy,
         avAudioSessionSetActiveOptions: audio_session.AVAudioSessionSetActiveOptions.none,
         androidAudioAttributes: const audio_session.AndroidAudioAttributes(
@@ -136,7 +137,7 @@ class ImprovedAudioService {
     }
   }
   
-  /// Process next chunk with noise gate and minimal crossfade
+  /// Process next chunk without crossfade for clean audio
   Future<void> _processNextChunk() async {
     if (_audioQueue.isEmpty || _isProcessing) return;
     
@@ -147,10 +148,13 @@ class ImprovedAudioService {
       // Apply noise gate first to clean the audio
       Uint8List processedData = _applyNoiseGate(chunk.data);
       
-      // Add inter-chunk gap to prevent overlap
+      // Add small silence gap between chunks (no crossfade)
       if (_lastProcessedChunk != null) {
-        await Future.delayed(Duration(milliseconds: INTER_CHUNK_GAP_MS));
-        processedData = _applySmoothCrossfade(_lastProcessedChunk!, processedData);
+        await Future.delayed(Duration(milliseconds: INTER_CHUNK_SILENCE_MS));
+        // No crossfade applied when ENABLE_CROSSFADE is false
+        if (ENABLE_CROSSFADE) {
+          processedData = _applySmoothCrossfade(_lastProcessedChunk!, processedData);
+        }
       }
       
       _lastProcessedChunk = processedData;
@@ -176,7 +180,7 @@ class ImprovedAudioService {
       // Clean up
       await tempFile.delete();
       
-      AppLogger.success('✅ Played chunk ${chunk.id} with crossfade');
+      AppLogger.success('✅ Played chunk ${chunk.id} ${ENABLE_CROSSFADE ? "with crossfade" : "directly"}');
     } catch (e) {
       AppLogger.error('Failed to play chunk ${chunk.id}', e);
     } finally {

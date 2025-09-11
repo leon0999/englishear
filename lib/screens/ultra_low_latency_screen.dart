@@ -31,6 +31,7 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
   bool _isConnected = false;
   bool _isRecording = false;
   bool _isSpeaking = false;
+  bool _isAISpeaking = false; // Track AI speaking state
   String _statusText = 'Initializing...';
   List<ChatMessage> _messages = [];
   static const int MAX_MESSAGES = 5; // Maximum messages to display
@@ -133,12 +134,19 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
       setState(() {
         _currentAiResponse += text;
         _isSpeaking = true;
+        _isAISpeaking = true; // AI is speaking
       });
       
       // When AI response is complete, add to messages
       if (text.contains('.') || text.contains('?') || text.contains('!')) {
         _addMessage(_currentAiResponse, false);
         _currentAiResponse = '';
+        // AI might still be speaking audio even after text is complete
+        Future.delayed(Duration(seconds: 2), () {
+          setState(() {
+            _isAISpeaking = false; // AI finished speaking
+          });
+        });
       }
     });
     
@@ -159,6 +167,12 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
   }
   
   Future<void> _startRecording() async {
+    // Prevent recording while AI is speaking
+    if (_isAISpeaking) {
+      AppLogger.warning('Cannot start recording while AI is speaking');
+      return;
+    }
+    
     try {
       setState(() {
         _statusText = 'Listening...';
@@ -441,8 +455,8 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
                 
                 // Main Recording Button
                 GestureDetector(
-                  onTapDown: _isConnected ? (_) => _startRecording() : null,
-                  onTapUp: _isConnected ? (_) => _stopRecording() : null,
+                  onTapDown: (_isConnected && !_isAISpeaking) ? (_) => _startRecording() : null,
+                  onTapUp: (_isConnected && !_isAISpeaking) ? (_) => _stopRecording() : null,
                   onTapCancel: _isRecording ? () => _stopRecording() : null,
                   child: AnimatedBuilder(
                     animation: _pulseAnimation,
@@ -457,11 +471,13 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
                             gradient: LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
-                              colors: _isRecording
-                                  ? [Colors.red, Colors.redAccent]
-                                  : _isSpeaking
-                                      ? [Colors.blue, Colors.blueAccent]
-                                      : [Colors.green, Colors.greenAccent],
+                              colors: _isAISpeaking
+                                  ? [Colors.grey, Colors.grey.shade600] // Greyed out when AI is speaking
+                                  : _isRecording
+                                      ? [Colors.red, Colors.redAccent]
+                                      : _isSpeaking
+                                          ? [Colors.blue, Colors.blueAccent]
+                                          : [Colors.green, Colors.greenAccent],
                             ),
                             boxShadow: [
                               BoxShadow(
@@ -473,11 +489,13 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
                             ],
                           ),
                           child: Icon(
-                            _isRecording 
-                                ? Icons.mic 
-                                : _isSpeaking 
-                                    ? Icons.volume_up
-                                    : Icons.mic_none,
+                            _isAISpeaking
+                                ? Icons.mic_off  // Show mic off when AI is speaking
+                                : _isRecording 
+                                    ? Icons.mic 
+                                    : _isSpeaking 
+                                        ? Icons.volume_up
+                                        : Icons.mic_none,
                             color: Colors.white,
                             size: 40,
                           ),

@@ -38,6 +38,11 @@ class OpenAIRealtimeWebSocket {
   String? _sessionId;
   bool _isResponseInProgress = false;  // Flag to prevent duplicate responses
   
+  // Audio buffer tracking
+  static const int MIN_AUDIO_BUFFER_SIZE = 4800; // 100ms at 24kHz (minimum required)
+  int _currentBufferSize = 0; // Track current buffer size
+  bool _isAISpeaking = false; // Track AI speaking state
+  
   OpenAIRealtimeWebSocket() : apiKey = dotenv.env['OPENAI_API_KEY'] ?? '' {
     if (apiKey.isEmpty) {
       AppLogger.error('OpenAI API key not found in environment');
@@ -265,6 +270,7 @@ IMPORTANT RULES:
           
         case 'response.audio.delta':
           // Audio chunk received from Jupiter
+          _isAISpeaking = true; // AI is speaking
           final audioDelta = event['delta'];
           if (audioDelta != null) {
             final audioBytes = base64Decode(audioDelta);
@@ -317,8 +323,14 @@ IMPORTANT RULES:
         case 'response.done':
           AppLogger.info('✅ Response completed');
           _isResponseInProgress = false;  // Reset flag when response is done
+          _isAISpeaking = false; // AI finished speaking
           _updateSpeakingState('idle');
           onResponseCompleted?.call(); // Notify audio service
+          break;
+          
+        case 'response.audio.done':
+          AppLogger.info('🔇 Audio playback completed');
+          _isAISpeaking = false; // AI finished speaking audio
           break;
           
         case 'rate_limits.updated':
@@ -379,11 +391,22 @@ IMPORTANT RULES:
       return;
     }
     
+    // Don't send audio if AI is speaking
+    if (_isAISpeaking) {
+      AppLogger.warning('Cannot send audio: AI is speaking');
+      return;
+    }
+    
+    // Track buffer size
+    _currentBufferSize += audioData.length;
+    
     final base64Audio = base64Encode(audioData);
     _sendEvent({
       'type': 'input_audio_buffer.append',
       'audio': base64Audio,
     });
+    
+    AppLogger.debug('📤 Audio appended to buffer (${audioData.length} bytes, total: $_currentBufferSize bytes)');
   }
   
   /// Alias for sendAudio for better API clarity
@@ -391,17 +414,29 @@ IMPORTANT RULES:
   
   /// Clear audio buffer
   void clearAudioBuffer() {
+    _currentBufferSize = 0; // Reset buffer size tracking
     _sendEvent({
       'type': 'input_audio_buffer.clear',
     });
+    AppLogger.debug('🗑️ Audio buffer cleared');
   }
   
   /// Commit audio buffer and create response
   void commitAudioAndRespond() {
+    // Check if buffer has minimum required size
+    if (_currentBufferSize < MIN_AUDIO_BUFFER_SIZE) {
+      AppLogger.warning('Buffer too small ($_currentBufferSize bytes < $MIN_AUDIO_BUFFER_SIZE bytes), clearing instead of committing');
+      clearAudioBuffer();
+      return;
+    }
+    
     // Commit the audio buffer
     _sendEvent({
       'type': 'input_audio_buffer.commit',
     });
+    
+    AppLogger.info('📤 Audio buffer committed ($_currentBufferSize bytes)');
+    _currentBufferSize = 0; // Reset after commit
     
     // Create response only if not already in progress
     if (!_isResponseInProgress) {
