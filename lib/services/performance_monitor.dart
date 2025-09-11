@@ -84,6 +84,35 @@ class PerformanceMonitor {
     return latencyMs;
   }
   
+  /// Record latency directly (for first byte latency tracking)
+  void recordLatency(int latencyMs, {String category = 'first_byte'}) {
+    // Store measurement
+    _latencyMeasurements.putIfAbsent(category, () => []).add(latencyMs);
+    _currentLatencyMs = latencyMs;
+    _totalRequests++;
+    
+    // Update statistics
+    _updateStatistics(category);
+    
+    // Check for performance alerts
+    _checkPerformanceAlerts('direct_latency', latencyMs);
+    
+    // Log based on performance
+    if (latencyMs <= TARGET_FIRST_BYTE_MS) {
+      AppLogger.success('🚀 First byte latency: ${latencyMs}ms (Moshi AI level!)');
+    } else if (latencyMs <= TARGET_E2E_LATENCY_MS) {
+      AppLogger.info('✅ First byte latency: ${latencyMs}ms (Good)');
+    } else if (latencyMs <= ALERT_THRESHOLD_MS) {
+      AppLogger.warning('⚠️ First byte latency: ${latencyMs}ms (Slow)');
+    } else {
+      AppLogger.error('🔴 First byte latency: ${latencyMs}ms (Critical)');
+      _failedRequests++;
+    }
+    
+    // Emit metrics update
+    _emitMetrics();
+  }
+  
   /// Record network metric
   void recordNetworkMetric({
     required String endpoint,
