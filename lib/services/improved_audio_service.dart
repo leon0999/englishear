@@ -25,10 +25,12 @@ class ImprovedAudioService {
   bool _isProcessing = false;
   Timer? _processTimer;
   
-  // Crossfade parameters
-  static const int crossfadeSamples = 480; // 20ms at 24kHz
+  // Crossfade parameters - increased for smoother transitions
+  static const int crossfadeSamples = 1200; // 50ms at 24kHz (increased from 480)
   static const int sampleRate = 24000;
   static const int bytesPerSample = 2;
+  static const int CROSSFADE_BYTES = crossfadeSamples * bytesPerSample; // 2400 bytes
+  static const int OPTIMAL_BUFFER_SIZE = 9600; // 200ms for optimal buffering
   
   // Stream controllers
   final _audioLevelController = StreamController<double>.broadcast();
@@ -43,6 +45,9 @@ class ImprovedAudioService {
   List<int> _recordingBuffer = [];
   Timer? _bufferTimer;
   static const int MIN_BUFFER_SIZE = 4800; // 100ms at 24kHz (24000 * 0.1 * 2 bytes)
+  
+  // Keep track of last processed chunk for smooth crossfading
+  Uint8List? _lastProcessedChunk;
   
   // Playback state
   bool _isPlaying = false;
@@ -92,7 +97,12 @@ class ImprovedAudioService {
       ));
       
       await session.setActive(true);
-      AppLogger.success('✅ Audio session configured for low-latency voice');
+      
+      // iOS-specific buffer optimization (commented out as method may not be available in all versions)
+      // Keeping voiceChat mode is sufficient for low-latency
+      // If needed in future: await session.setPreferredIOBufferDuration(0.005);
+      
+      AppLogger.success('✅ Audio session configured for low-latency voice with voiceChat mode');
       
       // Start queue processor with faster interval
       _processTimer?.cancel();
@@ -125,7 +135,7 @@ class ImprovedAudioService {
     }
   }
   
-  /// Process next chunk with crossfade
+  /// Process next chunk with noise gate and crossfade
   Future<void> _processNextChunk() async {
     if (_audioQueue.isEmpty || _isProcessing) return;
     
@@ -133,11 +143,15 @@ class ImprovedAudioService {
     final chunk = _audioQueue.removeFirst();
     
     try {
+      // Apply noise gate first to clean the audio
+      Uint8List processedData = _applyNoiseGate(chunk.data);
+      
       // Apply crossfade if there was a previous chunk
-      Uint8List processedData = chunk.data;
-      if (_audioQueue.isNotEmpty) {
-        processedData = _applyCrossfade(chunk.data, _audioQueue.first.data);
+      if (_lastProcessedChunk != null) {
+        processedData = _applySmoothCrossfade(_lastProcessedChunk!, processedData);
       }
+      
+      _lastProcessedChunk = processedData;
       
       // Convert to WAV with proper headers
       final wavData = _createWavFromPcm(processedData);
@@ -177,26 +191,56 @@ class ImprovedAudioService {
     }
   }
   
-  /// Apply crossfade between chunks
-  Uint8List _applyCrossfade(Uint8List current, Uint8List next) {
-    final fadeLength = math.min(crossfadeSamples * bytesPerSample, current.length ~/ 4);
-    final result = Uint8List.fromList(current);
-    
-    // Apply fade out to end of current chunk
-    for (int i = 0; i < fadeLength; i += bytesPerSample) {
-      final index = current.length - fadeLength + i;
-      if (index < 0 || index + 1 >= result.length) continue;
+  /// Apply smooth crossfade with Hamming window
+  Uint8List _applySmoothCrossfade(Uint8List previousChunk, Uint8List currentChunk) {
+    try {
+      // Use longer crossfade for smoother transition
+      final fadeLength = math.min(crossfadeSamples, 
+        math.min(previousChunk.length ~/ 2, currentChunk.length ~/ 2));
       
-      final sample = (result[index] | (result[index + 1] << 8));
-      final fadeFactor = 1.0 - (i / fadeLength);
-      final fadedSample = (sample * fadeFactor).round();
+      final result = Uint8List.fromList(currentChunk);
       
-      result[index] = fadedSample & 0xFF;
-      result[index + 1] = (fadedSample >> 8) & 0xFF;
+      // Apply Hamming window for smoother transition
+      for (int i = 0; i < fadeLength; i++) {
+        // Hamming window coefficients
+        final fadeIn = 0.54 - 0.46 * math.cos(2 * math.pi * i / (fadeLength - 1));
+        final fadeOut = 1.0 - fadeIn;
+        
+        final prevIndex = (previousChunk.length ~/ 2) - fadeLength + i;
+        final currIndex = i;
+        
+        if (prevIndex >= 0 && prevIndex * 2 + 1 < previousChunk.length &&
+            currIndex * 2 + 1 < result.length) {
+          // Get 16-bit samples
+          final prevSample = (previousChunk[prevIndex * 2] |
+              (previousChunk[prevIndex * 2 + 1] << 8)).toSigned(16);
+          final currSample = (result[currIndex * 2] |
+              (result[currIndex * 2 + 1] << 8)).toSigned(16);
+          
+          // Mix samples with crossfade
+          final mixed = (prevSample * fadeOut + currSample * fadeIn).round();
+          
+          // Clamp to prevent clipping
+          final clipped = mixed.clamp(-32768, 32767);
+          
+          // Write back to result
+          result[currIndex * 2] = clipped & 0xFF;
+          result[currIndex * 2 + 1] = (clipped >> 8) & 0xFF;
+        }
+      }
+      
+      AppLogger.debug('🎵 Applied smooth crossfade ($fadeLength samples with Hamming window)');
+      return result;
+    } catch (e) {
+      AppLogger.error('Crossfade error: $e');
+      return currentChunk;
     }
-    
-    AppLogger.debug('🎵 Applied crossfade (${fadeLength} bytes)');
-    return result;
+  }
+  
+  /// Apply crossfade between chunks (legacy method for compatibility)
+  Uint8List _applyCrossfade(Uint8List current, Uint8List next) {
+    // Use the new smooth crossfade method
+    return _applySmoothCrossfade(current, next);
   }
   
   /// Create WAV header for PCM data
@@ -332,9 +376,32 @@ class ImprovedAudioService {
     _audioLevelController.add(math.min(1.0, level * 2));
   }
   
+  /// Apply noise gate to remove low-level noise
+  Uint8List _applyNoiseGate(Uint8List audioData, {double threshold = 0.01}) {
+    final processed = Uint8List.fromList(audioData);
+    
+    for (int i = 0; i < processed.length ~/ 2; i++) {
+      final sampleIndex = i * 2;
+      if (sampleIndex + 1 >= processed.length) break;
+      
+      final sample = (processed[sampleIndex] | 
+          (processed[sampleIndex + 1] << 8)).toSigned(16);
+      final normalized = sample / 32768.0;
+      
+      // Remove small noise below threshold
+      if (normalized.abs() < threshold) {
+        processed[sampleIndex] = 0;
+        processed[sampleIndex + 1] = 0;
+      }
+    }
+    
+    return processed;
+  }
+  
   /// Clear audio queue
   void clearQueue() {
     _audioQueue.clear();
+    _lastProcessedChunk = null; // Reset crossfade reference
     AppLogger.info('🗑️ Audio queue cleared');
   }
   

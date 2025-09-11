@@ -369,6 +369,7 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Row(
                                     mainAxisSize: MainAxisSize.min,
@@ -379,12 +380,15 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
                                         color: message.isUser ? Colors.blue : Colors.green,
                                       ),
                                       const SizedBox(width: 6),
-                                      Text(
-                                        message.isUser ? 'You' : 'AI Tutor',
-                                        style: TextStyle(
-                                          color: message.isUser ? Colors.blue : Colors.green,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.bold,
+                                      Flexible(
+                                        child: Text(
+                                          message.isUser ? 'You' : 'AI Tutor',
+                                          style: TextStyle(
+                                            color: message.isUser ? Colors.blue : Colors.green,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
                                         ),
                                       ),
                                     ],
@@ -642,11 +646,15 @@ class _UltraLowLatencyScreenState extends State<UltraLowLatencyScreen>
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              _currentAiResponse,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
+            Flexible(
+              child: Text(
+                _currentAiResponse,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                ),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 1,
               ),
             ),
           ],
