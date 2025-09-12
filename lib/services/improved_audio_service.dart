@@ -9,6 +9,9 @@ import 'package:audio_session/audio_session.dart' as audio_session;
 import 'package:path_provider/path_provider.dart';
 import '../core/logger.dart';
 import 'dart:io';
+import 'audio_queue_manager.dart';
+import 'sentence_aware_audio_service.dart';
+import 'natural_speech_processor.dart';
 
 /// Improved Audio Service with crossfade and zero-gap playback
 /// Inspired by Moshi's continuous streaming approach
@@ -16,6 +19,11 @@ class ImprovedAudioService {
   final AudioRecorder _recorder = AudioRecorder();
   late final AudioPlayer _primaryPlayer;
   late final AudioPlayer _secondaryPlayer;
+  
+  // New integrated services for natural speech
+  final AudioQueueManager _queueManager = AudioQueueManager();
+  final SentenceAwareAudioService _sentenceService = SentenceAwareAudioService();
+  final NaturalSpeechProcessor _speechProcessor = NaturalSpeechProcessor();
   
   // Double buffering for seamless playback
   bool _usePrimaryPlayer = true;
@@ -122,21 +130,25 @@ class ImprovedAudioService {
     }
   }
   
-  /// Add audio chunk with crossfade preparation
-  void addAudioChunk(Uint8List pcmData, {String? chunkId}) {
-    final chunk = AudioChunk(
-      id: chunkId ?? 'chunk_${_currentChunkId++}',
-      data: pcmData,
-      timestamp: DateTime.now(),
-    );
-    
-    _audioQueue.add(chunk);
-    AppLogger.debug('📦 Added audio chunk ${chunk.id} (${pcmData.length} bytes)');
-    
-    // Process immediately if not already processing
-    if (!_isProcessing && !_isPlaying) {
-      _processNextChunk();
-    }
+  /// Add audio chunk with natural speech processing
+  void addAudioChunk(Uint8List pcmData, {String? chunkId, String? text}) {
+    // Apply natural speech processing
+    _speechProcessor.processWithNaturalPauses(pcmData, text).then((processedData) {
+      // Use the new queue manager for sequential playback
+      _queueManager.addChunk(
+        chunkId ?? 'chunk_${_currentChunkId++}',
+        processedData,
+        text: text,
+      );
+      
+      AppLogger.debug('📦 Added processed audio chunk (${processedData.length} bytes) with text: "$text"');
+    });
+  }
+  
+  /// Process audio delta from WebSocket (sentence-aware)
+  void processAudioDelta(Map<String, dynamic> data) {
+    // Use sentence-aware service for better speech flow
+    _sentenceService.processAudioDelta(data);
   }
   
   /// Process next chunk without crossfade for clean audio
@@ -422,6 +434,10 @@ class ImprovedAudioService {
     await _secondaryPlayer.dispose();
     await _audioLevelController.close();
     await _playbackStateController.close();
+    
+    // Dispose new services
+    await _queueManager.dispose();
+    await _sentenceService.dispose();
     
     AppLogger.info('🔚 Audio service disposed');
   }

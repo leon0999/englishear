@@ -450,7 +450,7 @@ class UltraLowLatencyEngine {
           'role': 'assistant',
           'content': [
             {
-              'type': 'input_text',
+              'type': 'text',  // Fixed: 'input_text' → 'text'
               'text': greeting
             }
           ]
