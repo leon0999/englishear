@@ -442,22 +442,32 @@ class UltraLowLatencyEngine {
       final random = math.Random();
       final greeting = _greetings[random.nextInt(_greetings.length)];
       
-      // Send greeting as a response from Jupiter
-      final message = {
-        'type': 'response.create',
-        'response': {
-          'modalities': ['text', 'audio'],
-          'instructions': 'Say this greeting in a friendly and welcoming tone',
-          'messages': [
+      // First, add the greeting as a conversation item
+      final conversationItem = {
+        'type': 'conversation.item.create',
+        'item': {
+          'type': 'message',
+          'role': 'assistant',
+          'content': [
             {
-              'role': 'assistant',
-              'content': greeting
+              'type': 'input_text',
+              'text': greeting
             }
           ]
         }
       };
       
-      _channel?.sink.add(jsonEncode(message));
+      _channel?.sink.add(jsonEncode(conversationItem));
+      
+      // Then trigger response generation for the greeting
+      final createResponse = {
+        'type': 'response.create',
+        'response': {
+          'modalities': ['text', 'audio'],
+        }
+      };
+      
+      _channel?.sink.add(jsonEncode(createResponse));
       AppLogger.info('🤖 Jupiter initiated conversation: "$greeting"');
       
       // Also send to text stream for UI

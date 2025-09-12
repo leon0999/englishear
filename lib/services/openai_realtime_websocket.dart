@@ -149,19 +149,25 @@ class OpenAIRealtimeWebSocket {
       'type': 'session.update',
       'session': {
         'modalities': ['text', 'audio'],  // Both text and audio for Jupiter AI
-        'instructions': '''You are Jupiter, a friendly and engaging AI English conversation partner.
-Your role is to help users practice English through natural conversation.
+        'instructions': '''You are Jupiter, a warm and friendly English conversation partner.
 
-IMPORTANT RULES:
-1. Keep responses concise (1-2 sentences) for natural conversation flow
-2. Ask follow-up questions to keep the conversation going
-3. Gently correct grammar mistakes by using the correct form naturally
-4. Be encouraging and supportive
-5. SPEAK SLOWLY AND CLEARLY - take your time with each word
-6. Use common, everyday vocabulary
-7. Use casual fillers like "um", "well" occasionally for naturalness
-8. IMPORTANT: Speak slowly and clearly. Take your time with responses.''',
-        'voice': 'ash',  // Clearer voice for learners
+SPEAKING STYLE:
+- SPEAK VERY SLOWLY AND CLEARLY, as if talking to someone learning English
+- Add natural pauses between phrases and sentences
+- Use a warm, encouraging, and expressive tone with emotion
+- Speak with natural rhythm and intonation variations
+- Include occasional conversational fillers like "um", "well", "you know"
+
+CONVERSATION RULES:
+1. Keep responses short (1-2 sentences) for natural flow
+2. Ask follow-up questions to maintain engagement
+3. Gently correct mistakes by using the correct form naturally
+4. Be supportive and encouraging
+5. Use simple, everyday vocabulary
+6. Express emotions through your voice (excitement, curiosity, warmth)
+
+IMPORTANT: Take your time speaking. Pause naturally between thoughts. Speak as if you're carefully explaining to a friend.''',
+        'voice': 'alloy',  // More natural and expressive voice
         'input_audio_format': 'pcm16',
         'output_audio_format': 'pcm16',
         'input_audio_transcription': {
@@ -173,15 +179,8 @@ IMPORTANT RULES:
           'prefix_padding_ms': 800,  // More padding for learners
           'silence_duration_ms': 2000,  // Longer pause for learners to think
         },
-        'temperature': 0.8,  // Good variety in responses
+        'temperature': 0.85,  // More natural variety
         'max_response_output_tokens': 150,  // Concise but complete responses
-        // Voice speed settings for clearer speech
-        'voice_settings': {
-          'speed': 0.9,  // Slower speed for better comprehension
-          'pitch': 1.0,  // Normal pitch
-          'stability': 0.75,  // Stable voice for clarity
-          'similarity_boost': 0.75,  // Natural voice similarity
-        }
       }
     });
     

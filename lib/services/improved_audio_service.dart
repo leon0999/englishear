@@ -33,6 +33,8 @@ class ImprovedAudioService {
   static const int CROSSFADE_BYTES = crossfadeSamples * bytesPerSample; // Not used
   static const int OPTIMAL_BUFFER_SIZE = 9600; // 200ms for optimal buffering
   static const int INTER_CHUNK_SILENCE_MS = 5; // 5ms silence between chunks
+  static const int CHUNK_GAP_MS = 50; // 50ms gap between chunks for natural speech
+  static const double PLAYBACK_RATE = 0.85; // 15% slower for better comprehension
   
   // Stream controllers
   final _audioLevelController = StreamController<double>.broadcast();
@@ -67,8 +69,8 @@ class ImprovedAudioService {
     for (final player in [_primaryPlayer, _secondaryPlayer]) {
       player.setReleaseMode(ReleaseMode.stop);
       player.setVolume(1.0);
-      // Slightly slower playback for better comprehension
-      player.setPlaybackRate(0.95);
+      // Apply configured playback rate for better comprehension
+      player.setPlaybackRate(PLAYBACK_RATE);
     }
     
     AppLogger.info('🎵 Audio players initialized with double buffering');
@@ -148,9 +150,10 @@ class ImprovedAudioService {
       // Apply noise gate first to clean the audio
       Uint8List processedData = _applyNoiseGate(chunk.data);
       
-      // Add small silence gap between chunks (no crossfade)
+      // Add natural gap between chunks for better speech comprehension
       if (_lastProcessedChunk != null) {
-        await Future.delayed(Duration(milliseconds: INTER_CHUNK_SILENCE_MS));
+        // Use CHUNK_GAP_MS for more natural speech rhythm
+        await Future.delayed(Duration(milliseconds: CHUNK_GAP_MS));
         // No crossfade applied when ENABLE_CROSSFADE is false
         if (ENABLE_CROSSFADE) {
           processedData = _applySmoothCrossfade(_lastProcessedChunk!, processedData);
