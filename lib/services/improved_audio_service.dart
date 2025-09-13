@@ -161,7 +161,7 @@ class ImprovedAudioService {
   }
   
   /// Add audio chunk with centralized management
-  void addAudioChunk(Uint8List pcmData, {String? chunkId, String? text}) async {
+  Future<void> addAudioChunk(Uint8List pcmData, {String? chunkId, String? text}) async {
     try {
       final id = chunkId ?? 'chunk_${_currentChunkId++}';
       
