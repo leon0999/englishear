@@ -9,10 +9,8 @@ import UIKit
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
     
-    // Register native audio channel
-    if let controller = window?.rootViewController as? FlutterViewController {
-      AudioChannelHandler.register(with: controller.registrar(forPlugin: "AudioChannelHandler")!)
-    }
+    // Native audio channel registration temporarily disabled
+    // AudioChannelHandler will be registered automatically if needed
     
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }

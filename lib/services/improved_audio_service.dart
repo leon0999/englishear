@@ -15,7 +15,7 @@ import 'natural_speech_processor.dart';
 import 'audio_format_helper.dart';
 import 'just_audio_service.dart';
 import 'audio_chunk_manager.dart';
-import 'ios_audio_player.dart';
+import 'reliable_audio_player.dart';
 import 'native_audio_channel.dart';
 
 /// Improved Audio Service with crossfade and zero-gap playback
@@ -36,8 +36,8 @@ class ImprovedAudioService {
   // Centralized audio management
   final AudioChunkManager _chunkManager = AudioChunkManager();
   
-  // iOS-optimized audio player
-  final IOSAudioPlayer _iosPlayer = IOSAudioPlayer();
+  // Reliable audio player using just_audio
+  final ReliableAudioPlayer _reliablePlayer = ReliableAudioPlayer();
   
   // Double buffering for seamless playback
   bool _usePrimaryPlayer = true;
@@ -110,9 +110,9 @@ class ImprovedAudioService {
         if (nativeInitialized) {
           AppLogger.success('✅ Native iOS audio channel initialized');
         } else {
-          // Fallback to IOSAudioPlayer if native fails
-          await _iosPlayer.initialize();
-          AppLogger.info('iOS audio player initialized (fallback)');
+          // Initialize reliable audio player
+          await _reliablePlayer.initialize();
+          AppLogger.info('Reliable audio player initialized');
         }
       } else {
         // Initialize JustAudioService for other platforms
@@ -174,7 +174,7 @@ class ImprovedAudioService {
   }
   
   /// Process audio delta from WebSocket with iOS optimization
-  void processAudioDelta(Map<String, dynamic> data) {
+  Future<void> processAudioDelta(Map<String, dynamic> data) async {
     try {
       // Extract audio data
       final delta = data['delta'];
@@ -191,17 +191,9 @@ class ImprovedAudioService {
       
       AppLogger.info('🔊 Processing chunk $chunkId (${audioData.length} bytes)');
       
-      // Use iOS-optimized player on iOS, otherwise use chunk manager
-      if (Platform.isIOS) {
-        // Try native channel first for best performance
-        final success = await NativeAudioChannel.playPCMData(audioData, chunkId: chunkId);
-        if (!success) {
-          // Fallback to IOSAudioPlayer if native fails
-          _iosPlayer.playPCM(chunkId, audioData);
-        }
-      } else {
-        _chunkManager.processChunk(chunkId, audioData);
-      }
+      // Use reliable audio player for all platforms
+      // This fixes the -11828 error by using just_audio with proper WAV format
+      await _reliablePlayer.playPCM(chunkId, audioData);
       
     } catch (e) {
       AppLogger.error('Failed to process audio delta: $e');

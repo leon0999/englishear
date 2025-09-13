@@ -7,10 +7,17 @@ import '../core/logger.dart';
 class NativeAudioChannel {
   static const MethodChannel _channel = MethodChannel('com.englishear/audio');
   static bool _isInitialized = false;
+  static bool _useNativeChannel = false; // Disabled until properly configured
   
   /// Initialize native audio engine
   static Future<bool> initialize() async {
     if (_isInitialized) return true;
+    
+    // Native channel is disabled for now - return false to use fallback
+    if (!_useNativeChannel) {
+      AppLogger.info('Native audio channel disabled, using fallback');
+      return false;
+    }
     
     try {
       final result = await _channel.invokeMethod<bool>('initializeAudioEngine');
@@ -34,6 +41,11 @@ class NativeAudioChannel {
   
   /// Play PCM audio data using native iOS audio engine
   static Future<bool> playPCMData(Uint8List pcmData, {String? chunkId}) async {
+    // Native channel is disabled for now - return false to use fallback
+    if (!_useNativeChannel) {
+      return false;
+    }
+    
     if (!_isInitialized) {
       final initialized = await initialize();
       if (!initialized) {

@@ -3,14 +3,14 @@ import 'dart:typed_data';
 import 'dart:collection';
 import 'dart:io';
 import '../core/logger.dart';
-import 'ios_audio_player.dart';
+import 'reliable_audio_player.dart';
 import 'audio_format_helper.dart';
 
 /// Streaming audio service optimized for real-time playback
 /// Similar to ChatGPT Voice's approach with minimal buffering
 class StreamingAudioService {
-  // Audio players
-  final IOSAudioPlayer _iosPlayer = IOSAudioPlayer();
+  // Reliable audio player
+  final ReliableAudioPlayer _reliablePlayer = ReliableAudioPlayer();
   
   // Stream controller for incoming audio data
   final StreamController<Uint8List> _audioStreamController = StreamController<Uint8List>.broadcast();
@@ -43,11 +43,9 @@ class StreamingAudioService {
     if (_isInitialized) return;
     
     try {
-      // Initialize iOS player
-      if (Platform.isIOS) {
-        await _iosPlayer.initialize();
-        AppLogger.info('iOS audio player initialized for streaming');
-      }
+      // Initialize reliable audio player
+      await _reliablePlayer.initialize();
+      AppLogger.info('Reliable audio player initialized for streaming');
       
       // Set up stream listener
       _audioStreamController.stream.listen(
@@ -95,7 +93,7 @@ class StreamingAudioService {
   }
   
   /// Process buffered audio data
-  void _processBuffer() {
+  Future<void> _processBuffer() async {
     if (_isProcessing || _buffer.isEmpty) return;
     
     _isProcessing = true;
@@ -114,7 +112,7 @@ class StreamingAudioService {
       }
       
       // Play queued chunks
-      _playQueuedChunks();
+      await _playQueuedChunks();
       
     } catch (e) {
       AppLogger.error('Error processing buffer: $e');
@@ -124,7 +122,7 @@ class StreamingAudioService {
   }
   
   /// Play queued audio chunks
-  void _playQueuedChunks() {
+  Future<void> _playQueuedChunks() async {
     if (_playQueue.isEmpty) return;
     
     // Play all queued chunks
@@ -132,10 +130,8 @@ class StreamingAudioService {
       final chunk = _playQueue.removeFirst();
       final chunkId = 'stream_${DateTime.now().millisecondsSinceEpoch}';
       
-      // Play using iOS player
-      if (Platform.isIOS) {
-        _iosPlayer.playPCM(chunkId, chunk);
-      }
+      // Play using reliable audio player
+      await _reliablePlayer.playPCM(chunkId, chunk);
       
       _totalBytesPlayed += chunk.length;
     }
@@ -180,9 +176,7 @@ class StreamingAudioService {
       
       // Play final chunk
       final chunkId = 'flush_${DateTime.now().millisecondsSinceEpoch}';
-      if (Platform.isIOS) {
-        await _iosPlayer.playPCM(chunkId, finalChunk);
-      }
+      await _reliablePlayer.playPCM(chunkId, finalChunk);
       
       _totalBytesPlayed += finalChunk.length;
     }
@@ -203,7 +197,7 @@ class StreamingAudioService {
   }
   
   /// Clear all buffers and reset state
-  void clear() {
+  Future<void> clear() async {
     _buffer.clear();
     _playQueue.clear();
     _totalBytesReceived = 0;
@@ -213,9 +207,7 @@ class StreamingAudioService {
     _chunkCount = 0;
     _flushTimer?.cancel();
     
-    if (Platform.isIOS) {
-      _iosPlayer.stop();
-    }
+    await _reliablePlayer.stop();
     
     AppLogger.info('🗑️ Cleared all audio buffers');
   }
@@ -246,15 +238,15 @@ class StreamingAudioService {
   int get queueSize => _playQueue.length;
   
   /// Check if playing
-  bool get isPlaying => _iosPlayer.isPlaying;
+  bool get isPlaying => _reliablePlayer.isPlaying;
   
   /// Dispose resources
-  void dispose() {
+  Future<void> dispose() async {
     _processTimer?.cancel();
     _flushTimer?.cancel();
     _audioStreamController.close();
-    _iosPlayer.dispose();
-    clear();
+    await _reliablePlayer.dispose();
+    await clear();
     _isInitialized = false;
     AppLogger.info('StreamingAudioService disposed');
   }
