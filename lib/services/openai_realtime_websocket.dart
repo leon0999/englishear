@@ -5,6 +5,9 @@ import 'dart:io' show WebSocket, Platform;
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import '../core/logger.dart';
+import 'improved_audio_service.dart';
+import 'streaming_audio_service.dart';
+import 'conversation_enhancer.dart';
 
 /// OpenAI Realtime API WebSocket Service
 /// Provides real-time voice conversation using GPT-4 Realtime model
@@ -43,10 +46,22 @@ class OpenAIRealtimeWebSocket {
   int _currentBufferSize = 0; // Track current buffer size
   bool _isAISpeaking = false; // Track AI speaking state
   
+  // Audio service for processing
+  ImprovedAudioService? _audioService;
+  
+  // Enhanced audio streaming service
+  final StreamingAudioService _streamingService = StreamingAudioService();
+  
+  // Conversation enhancer for natural dialogue
+  final ConversationEnhancer _conversationEnhancer = ConversationEnhancer();
+  
   OpenAIRealtimeWebSocket() : apiKey = dotenv.env['OPENAI_API_KEY'] ?? '' {
     if (apiKey.isEmpty) {
       AppLogger.error('OpenAI API key not found in environment');
     }
+    _audioService = ImprovedAudioService();
+    _audioService?.initialize();
+    _streamingService.initialize();
   }
   
   /// Check if WebSocket is connected
@@ -271,11 +286,14 @@ IMPORTANT: Take your time speaking. Pause naturally between thoughts. Speak as i
           // Audio chunk received from Jupiter
           _isAISpeaking = true; // AI is speaking
           final audioDelta = event['delta'];
-          if (audioDelta != null) {
-            final audioBytes = base64Decode(audioDelta);
-            _audioDataController.add(audioBytes);
-            AppLogger.info('🔊 [AUDIO TEST] Received audio delta: ${audioBytes.length} bytes');
-            AppLogger.info('🔊 [AUDIO TEST] Audio data sent to controller');
+          if (audioDelta != null && audioDelta.isNotEmpty) {
+            // Decode audio data
+            final audioData = base64Decode(audioDelta);
+            
+            // Stream directly for minimal latency (ChatGPT Voice style)
+            _streamingService.addAudioData(audioData);
+            
+            AppLogger.debug('🎧 Streaming audio chunk: ${audioData.length} bytes');
           }
           break;
           
@@ -323,6 +341,10 @@ IMPORTANT: Take your time speaking. Pause naturally between thoughts. Speak as i
           AppLogger.info('✅ Response completed');
           _isResponseInProgress = false;  // Reset flag when response is done
           _isAISpeaking = false; // AI finished speaking
+          
+          // Flush any remaining audio
+          _streamingService.flush();
+          
           _updateSpeakingState('idle');
           onResponseCompleted?.call(); // Notify audio service
           break;

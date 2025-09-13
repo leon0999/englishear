@@ -432,17 +432,19 @@ class UltraLowLatencyEngine {
   StreamSubscription? _audioStreamSubscription;
   StreamSubscription? _textStreamSubscription;
   
-  /// Send initial greeting from Jupiter
+  /// Send initial greeting from Jupiter (text-only, no audio)
   Future<void> _sendInitialGreeting() async {
     try {
       // Wait a moment for session to be fully established
       await Future.delayed(Duration(seconds: 1));
       
-      // Select random greeting
-      final random = math.Random();
-      final greeting = _greetings[random.nextInt(_greetings.length)];
+      // Use a simple, welcoming greeting
+      final greeting = "Hi there! Want to chat for a bit?";
       
-      // First, add the greeting as a conversation item
+      // Send greeting to UI text stream only (no audio generation)
+      _textController?.add('[Jupiter]: $greeting');
+      
+      // Add to conversation history for context
       final conversationItem = {
         'type': 'conversation.item.create',
         'item': {
@@ -450,7 +452,7 @@ class UltraLowLatencyEngine {
           'role': 'assistant',
           'content': [
             {
-              'type': 'text',  // Fixed: 'input_text' → 'text'
+              'type': 'text',
               'text': greeting
             }
           ]
@@ -459,19 +461,11 @@ class UltraLowLatencyEngine {
       
       _channel?.sink.add(jsonEncode(conversationItem));
       
-      // Then trigger response generation for the greeting
-      final createResponse = {
-        'type': 'response.create',
-        'response': {
-          'modalities': ['text', 'audio'],
-        }
-      };
+      AppLogger.info('🤖 Jupiter greeted (text-only): "$greeting"');
+      AppLogger.info('⏳ Waiting for user response...');
       
-      _channel?.sink.add(jsonEncode(createResponse));
-      AppLogger.info('🤖 Jupiter initiated conversation: "$greeting"');
-      
-      // Also send to text stream for UI
-      _textController?.add('[Jupiter]: $greeting');
+      // DO NOT trigger response.create - wait for user input
+      // This prevents Jupiter from talking to itself
       
     } catch (e) {
       AppLogger.error('Failed to send initial greeting', e);

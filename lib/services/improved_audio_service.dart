@@ -12,6 +12,11 @@ import 'dart:io';
 import 'audio_queue_manager.dart';
 import 'sentence_aware_audio_service.dart';
 import 'natural_speech_processor.dart';
+import 'audio_format_helper.dart';
+import 'just_audio_service.dart';
+import 'audio_chunk_manager.dart';
+import 'ios_audio_player.dart';
+import 'native_audio_channel.dart';
 
 /// Improved Audio Service with crossfade and zero-gap playback
 /// Inspired by Moshi's continuous streaming approach
@@ -24,6 +29,15 @@ class ImprovedAudioService {
   final AudioQueueManager _queueManager = AudioQueueManager();
   final SentenceAwareAudioService _sentenceService = SentenceAwareAudioService();
   final NaturalSpeechProcessor _speechProcessor = NaturalSpeechProcessor();
+  
+  // New audio service for stable playback
+  final JustAudioService _justAudioService = JustAudioService();
+  
+  // Centralized audio management
+  final AudioChunkManager _chunkManager = AudioChunkManager();
+  
+  // iOS-optimized audio player
+  final IOSAudioPlayer _iosPlayer = IOSAudioPlayer();
   
   // Double buffering for seamless playback
   bool _usePrimaryPlayer = true;
@@ -89,6 +103,22 @@ class ImprovedAudioService {
     AppLogger.test('==================== IMPROVED AUDIO INIT START ====================');
     
     try {
+      // Initialize iOS audio player first (if on iOS)
+      if (Platform.isIOS) {
+        // Try native channel first for optimal performance
+        final nativeInitialized = await NativeAudioChannel.initialize();
+        if (nativeInitialized) {
+          AppLogger.success('✅ Native iOS audio channel initialized');
+        } else {
+          // Fallback to IOSAudioPlayer if native fails
+          await _iosPlayer.initialize();
+          AppLogger.info('iOS audio player initialized (fallback)');
+        }
+      } else {
+        // Initialize JustAudioService for other platforms
+        await _justAudioService.initialize();
+      }
+      
       // Configure audio session for low latency
       final session = await audio_session.AudioSession.instance;
       await session.configure(audio_session.AudioSessionConfiguration(
@@ -114,7 +144,7 @@ class ImprovedAudioService {
       // Keeping voiceChat mode is sufficient for low-latency
       // If needed in future: await session.setPreferredIOBufferDuration(0.005);
       
-      AppLogger.success('✅ Audio session configured for low-latency voice with voiceChat mode');
+      AppLogger.success('✅ Audio session configured for ${Platform.isIOS ? "iOS" : "platform"} with optimized playback');
       
       // Start queue processor with faster interval
       _processTimer?.cancel();
@@ -130,25 +160,52 @@ class ImprovedAudioService {
     }
   }
   
-  /// Add audio chunk with natural speech processing
-  void addAudioChunk(Uint8List pcmData, {String? chunkId, String? text}) {
-    // Apply natural speech processing
-    _speechProcessor.processWithNaturalPauses(pcmData, text).then((processedData) {
-      // Use the new queue manager for sequential playback
-      _queueManager.addChunk(
-        chunkId ?? 'chunk_${_currentChunkId++}',
-        processedData,
-        text: text,
-      );
+  /// Add audio chunk with centralized management
+  void addAudioChunk(Uint8List pcmData, {String? chunkId, String? text}) async {
+    try {
+      final id = chunkId ?? 'chunk_${_currentChunkId++}';
       
-      AppLogger.debug('📦 Added processed audio chunk (${processedData.length} bytes) with text: "$text"');
-    });
+      // Use centralized chunk manager for duplicate prevention and queue management
+      await _chunkManager.processChunk(id, pcmData, text: text);
+      
+    } catch (e) {
+      AppLogger.error('Failed to add audio chunk: $e');
+    }
   }
   
-  /// Process audio delta from WebSocket (sentence-aware)
+  /// Process audio delta from WebSocket with iOS optimization
   void processAudioDelta(Map<String, dynamic> data) {
-    // Use sentence-aware service for better speech flow
-    _sentenceService.processAudioDelta(data);
+    try {
+      // Extract audio data
+      final delta = data['delta'];
+      if (delta == null || delta.isEmpty) {
+        AppLogger.warning('No audio data in delta');
+        return;
+      }
+      
+      // Decode base64 to PCM bytes
+      final audioData = base64Decode(delta);
+      
+      // Create unique chunk ID
+      final chunkId = data['item_id'] ?? 'chunk_${DateTime.now().millisecondsSinceEpoch}';
+      
+      AppLogger.info('🔊 Processing chunk $chunkId (${audioData.length} bytes)');
+      
+      // Use iOS-optimized player on iOS, otherwise use chunk manager
+      if (Platform.isIOS) {
+        // Try native channel first for best performance
+        final success = await NativeAudioChannel.playPCMData(audioData, chunkId: chunkId);
+        if (!success) {
+          // Fallback to IOSAudioPlayer if native fails
+          _iosPlayer.playPCM(chunkId, audioData);
+        }
+      } else {
+        _chunkManager.processChunk(chunkId, audioData);
+      }
+      
+    } catch (e) {
+      AppLogger.error('Failed to process audio delta: $e');
+    }
   }
   
   /// Process next chunk without crossfade for clean audio
@@ -174,8 +231,8 @@ class ImprovedAudioService {
       
       _lastProcessedChunk = processedData;
       
-      // Convert to WAV with proper headers
-      final wavData = _createWavFromPcm(processedData);
+      // Use AudioFormatHelper for proper WAV conversion
+      final wavData = AudioFormatHelper.pcmToWav(processedData);
       
       // Save to temporary file
       final tempDir = await getTemporaryDirectory();
